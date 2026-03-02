@@ -1,0 +1,16 @@
+services:
+  sutrabase:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    environment:
+      - JWT_SECRET=change-me-in-production-use-a-strong-secret
+      - PORT=3000
+      - DB_PATH=/app/data/md_viewer.db
+      - UPLOAD_DIR=/app/uploads/images
+      - ADMIN_EMAIL=admin@admin.com
+      - ADMIN_PASSWORD=admin123
+    restart: unless-stopped
