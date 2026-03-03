@@ -22,6 +22,13 @@ const md = markdownIt({
     }
 });
 
+// Open all links in new tab
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+    tokens[idx].attrSet('target', '_blank');
+    tokens[idx].attrSet('rel', 'noopener noreferrer');
+    return self.renderToken(tokens, idx, options);
+};
+
 // Task list plugin
 md.core.ruler.after('inline', 'task-lists', (state) => {
     const tokens = state.tokens;

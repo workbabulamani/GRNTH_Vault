@@ -29,13 +29,10 @@ const SutraBaseLogo = () => (
 );
 
 export default function Sidebar() {
-    const { activeCollection, tree, collections, loadCollections, switchCollection, addToast, setSidebarOpen, canEdit } = useApp();
+    const { activeCollection, tree, switchCollection, addToast, setSidebarOpen } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [showSearch, setShowSearch] = useState(false);
-    const [showNewCollection, setShowNewCollection] = useState(false);
-    const [newColName, setNewColName] = useState('');
-    const [newColDesc, setNewColDesc] = useState('');
 
     const handleSearch = useCallback(async (query) => {
         setSearchQuery(query);
@@ -74,22 +71,6 @@ export default function Sidebar() {
         }
     }, [activeCollection, tree]);
 
-    const handleCreateCollection = async (e) => {
-        e.preventDefault();
-        if (!newColName.trim()) return;
-        try {
-            const data = await api.createCollection(newColName.trim(), newColDesc.trim());
-            await loadCollections();
-            switchCollection(data.collection);
-            setShowNewCollection(false);
-            setNewColName('');
-            setNewColDesc('');
-            addToast(`Created "${newColName.trim()}"`);
-        } catch (err) {
-            addToast(err.message || 'Failed to create collection');
-        }
-    };
-
     return (
         <>
             {/* Header */}
@@ -124,57 +105,6 @@ export default function Sidebar() {
                 </div>
             </div>
 
-            {/* New Collection button (for admins/users only) */}
-            {canEdit && (
-                <div className="sidebar-new-collection">
-                    {!showNewCollection ? (
-                        <button
-                            className="btn-new-collection"
-                            onClick={() => setShowNewCollection(true)}
-                        >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
-                                <line x1="12" y1="8" x2="12" y2="16" />
-                                <line x1="8" y1="12" x2="16" y2="12" />
-                            </svg>
-                            New Collection
-                        </button>
-                    ) : (
-                        <form className="new-collection-form" onSubmit={handleCreateCollection}>
-                            <input
-                                className="input"
-                                placeholder="Collection name"
-                                value={newColName}
-                                onChange={e => setNewColName(e.target.value)}
-                                autoFocus
-                                required
-                                style={{ marginBottom: 6 }}
-                            />
-                            <input
-                                className="input"
-                                placeholder="Description (optional)"
-                                value={newColDesc}
-                                onChange={e => setNewColDesc(e.target.value)}
-                                style={{ marginBottom: 8 }}
-                            />
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                                <button
-                                    type="button"
-                                    className="btn btn-ghost"
-                                    style={{ padding: '4px 10px', fontSize: 'var(--font-size-xs)' }}
-                                    onClick={() => { setShowNewCollection(false); setNewColName(''); setNewColDesc(''); }}
-                                >Cancel</button>
-                                <button
-                                    type="submit"
-                                    className="btn btn-primary"
-                                    style={{ padding: '4px 10px', fontSize: 'var(--font-size-xs)' }}
-                                >Create</button>
-                            </div>
-                        </form>
-                    )}
-                </div>
-            )}
-
             {/* Search Results or File Tree */}
             {showSearch && searchQuery && (
                 <div className="sidebar-tree">
@@ -195,6 +125,7 @@ export default function Sidebar() {
         </>
     );
 }
+
 
 function SearchResult({ item }) {
     const { openFile } = useApp();
