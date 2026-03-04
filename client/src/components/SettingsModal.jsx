@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme, THEMES, ACCENT_COLORS } from '../context/ThemeContext.jsx';
 import { api } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
+import ConfirmModal from './ConfirmModal.jsx';
 
 export default function SettingsModal({ onClose }) {
     const { user, logout } = useAuth();
@@ -21,6 +22,14 @@ export default function SettingsModal({ onClose }) {
     const [newUserPassword, setNewUserPassword] = useState('');
     const [newUserRole, setNewUserRole] = useState('user');
 
+    // Backup state
+    const [backups, setBackups] = useState([]);
+    const [loadingBackups, setLoadingBackups] = useState(false);
+    const [creatingBackup, setCreatingBackup] = useState(false);
+    const [confirmAction, setConfirmAction] = useState(null);
+
+    const isAdmin = user?.role === 'admin';
+
     const loadUsers = async () => {
         setLoadingUsers(true);
         try {
@@ -30,6 +39,15 @@ export default function SettingsModal({ onClose }) {
         finally { setLoadingUsers(false); }
     };
 
+    const loadBackups = async () => {
+        setLoadingBackups(true);
+        try {
+            const data = await api.listBackups();
+            setBackups(data.backups);
+        } catch (err) { addToast('Failed to load backups'); }
+        finally { setLoadingBackups(false); }
+    };
+
     const handleChangePassword = async (e) => {
         e.preventDefault();
         try {
@@ -37,9 +55,7 @@ export default function SettingsModal({ onClose }) {
             addToast('Password changed');
             setCurrentPassword('');
             setNewPassword('');
-        } catch (err) {
-            addToast(err.message);
-        }
+        } catch (err) { addToast(err.message); }
     };
 
     const handleAddUser = async (e) => {
@@ -54,25 +70,82 @@ export default function SettingsModal({ onClose }) {
     };
 
     const handleChangeRole = async (userId, role) => {
-        try {
-            await api.updateUser(userId, { role });
-            loadUsers();
-            addToast('Role updated');
-        } catch (err) { addToast(err.message); }
+        try { await api.updateUser(userId, { role }); loadUsers(); addToast('Role updated'); }
+        catch (err) { addToast(err.message); }
     };
 
     const handleDeleteUser = async (userId) => {
-        if (!confirm('Delete this user?')) return;
-        try {
-            await api.deleteUser(userId);
-            loadUsers();
-            addToast('User deleted');
-        } catch (err) { addToast(err.message); }
+        setConfirmAction({
+            title: 'Delete User',
+            message: 'Are you sure you want to delete this user? This action cannot be undone.',
+            danger: true,
+            confirmLabel: 'Delete',
+            onConfirm: async () => {
+                try { await api.deleteUser(userId); loadUsers(); addToast('User deleted'); }
+                catch (err) { addToast(err.message); }
+                setConfirmAction(null);
+            },
+        });
     };
+
+    const handleCreateBackup = async () => {
+        setCreatingBackup(true);
+        try {
+            await api.createBackup();
+            addToast('Backup created successfully');
+            loadBackups();
+        } catch (err) { addToast('Failed to create backup'); }
+        finally { setCreatingBackup(false); }
+    };
+
+    const handleDownload = async () => {
+        try { await api.downloadBackup(); addToast('Download started'); }
+        catch (err) { addToast('Download failed'); }
+    };
+
+    const handleRestore = async (name) => {
+        setConfirmAction({
+            title: `Restore from "${name}"?`,
+            message: 'Current data will be backed up automatically before restore. The page will reload after restoration.',
+            danger: false,
+            confirmLabel: 'Restore',
+            onConfirm: async () => {
+                try {
+                    const result = await api.restoreBackup(name);
+                    addToast(result.message || 'Restored successfully. Reloading...');
+                    // Server will restart; reload the page after a short delay
+                    setTimeout(() => window.location.reload(), 2000);
+                } catch (err) { addToast(err.message || 'Restore failed'); }
+                setConfirmAction(null);
+            },
+        });
+    };
+
+    const handleDeleteBackup = async (name) => {
+        setConfirmAction({
+            title: `Delete backup "${name}"?`,
+            message: 'This backup will be permanently deleted.',
+            danger: true,
+            confirmLabel: 'Delete',
+            onConfirm: async () => {
+                try { await api.deleteBackup(name); addToast('Backup deleted'); loadBackups(); }
+                catch (err) { addToast('Failed to delete backup'); }
+                setConfirmAction(null);
+            },
+        });
+    };
+
+    const formatSize = (bytes) => {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
+
+    const handleSaveAndClose = () => { addToast('Settings saved'); onClose(); };
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+            <div className="modal settings-modal" onClick={e => e.stopPropagation()}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                     <h2 style={{ margin: 0 }}>Settings</h2>
                     <button className="btn-icon" onClick={onClose}>
@@ -86,145 +159,188 @@ export default function SettingsModal({ onClose }) {
                 <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border-primary)', paddingBottom: 8 }}>
                     <button className={`btn btn-ghost${tab === 'general' ? ' active' : ''}`} onClick={() => setTab('general')} style={{ fontSize: 'var(--font-size-sm)' }}>General</button>
                     <button className={`btn btn-ghost${tab === 'account' ? ' active' : ''}`} onClick={() => setTab('account')} style={{ fontSize: 'var(--font-size-sm)' }}>Account</button>
-                    {user?.role === 'admin' && (
+                    <button className={`btn btn-ghost${tab === 'backup' ? ' active' : ''}`} onClick={() => { setTab('backup'); loadBackups(); }} style={{ fontSize: 'var(--font-size-sm)' }}>Backup & Restore</button>
+                    {isAdmin && (
                         <button className={`btn btn-ghost${tab === 'admin' ? ' active' : ''}`} onClick={() => { setTab('admin'); loadUsers(); }} style={{ fontSize: 'var(--font-size-sm)' }}>Users</button>
                     )}
                 </div>
 
-                {tab === 'general' && (
-                    <div className="settings-panel">
-                        {/* Theme Selection */}
-                        <div className="settings-group">
-                            <h3>Theme</h3>
-                            <div className="theme-grid">
-                                {THEMES.map(t => (
-                                    <button
-                                        key={t.id}
-                                        className={`theme-option${theme === t.id ? ' active' : ''}`}
-                                        onClick={() => setTheme(t.id)}
-                                        title={t.name}
-                                    >
-                                        <span className="theme-icon">{t.icon}</span>
-                                        <span className="theme-name">{t.name}</span>
-                                    </button>
-                                ))}
+                <div className="settings-content-area">
+                    {tab === 'general' && (
+                        <div className="settings-panel">
+                            <div className="settings-group">
+                                <h3>Theme</h3>
+                                <div className="theme-grid">
+                                    {THEMES.map(t => (
+                                        <button key={t.id} className={`theme-option${theme === t.id ? ' active' : ''}`} onClick={() => setTheme(t.id)} title={t.name}>
+                                            <span className="theme-icon">{t.icon}</span>
+                                            <span className="theme-name">{t.name}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="settings-group">
+                                <h3>Accent Color</h3>
+                                <div className="accent-grid">
+                                    {ACCENT_COLORS.map(a => (
+                                        <button key={a.id} className={`accent-option${accentColor === a.id ? ' active' : ''}`} onClick={() => setAccentColor(a.id)} title={a.name} style={{ '--swatch-color': a.color }}>
+                                            <span className="accent-swatch" />
+                                            <span className="accent-name">{a.name}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="settings-group">
+                                <h3>About</h3>
+                                <div className="settings-row"><span className="label">Version</span><span>1.0.0</span></div>
                             </div>
                         </div>
+                    )}
 
-                        {/* Accent Color */}
-                        <div className="settings-group">
-                            <h3>Accent Color</h3>
-                            <div className="accent-grid">
-                                {ACCENT_COLORS.map(a => (
-                                    <button
-                                        key={a.id}
-                                        className={`accent-option${accentColor === a.id ? ' active' : ''}`}
-                                        onClick={() => setAccentColor(a.id)}
-                                        title={a.name}
-                                        style={{ '--swatch-color': a.color }}
-                                    >
-                                        <span className="accent-swatch" />
-                                        <span className="accent-name">{a.name}</span>
-                                    </button>
-                                ))}
+                    {tab === 'account' && (
+                        <div className="settings-panel">
+                            <div className="settings-group">
+                                <h3>Profile</h3>
+                                <div className="settings-row"><span className="label">Name</span><span>{user?.name}</span></div>
+                                <div className="settings-row"><span className="label">Email</span><span>{user?.email}</span></div>
+                                <div className="settings-row"><span className="label">Role</span><span className={`role-badge ${user?.role}`}>{user?.role}</span></div>
+                            </div>
+                            <div className="settings-group">
+                                <h3>Change Password</h3>
+                                <form onSubmit={handleChangePassword}>
+                                    <div className="form-group"><label>Current Password</label><input className="input" type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required /></div>
+                                    <div className="form-group"><label>New Password</label><input className="input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={6} /></div>
+                                    <button className="btn btn-primary" type="submit">Update Password</button>
+                                </form>
+                            </div>
+                            <div className="settings-group" style={{ marginTop: 24 }}>
+                                <button className="btn btn-danger" onClick={logout}>Sign Out</button>
                             </div>
                         </div>
+                    )}
 
-                        <div className="settings-group">
-                            <h3>About</h3>
-                            <div className="settings-row">
-                                <span className="label">Version</span>
-                                <span>1.0.0</span>
+                    {tab === 'backup' && (
+                        <div className="settings-panel">
+                            <div className="settings-group">
+                                <h3>Export Data</h3>
+                                <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+                                    Download all your data as an encrypted backup file.
+                                </p>
+                                <button className="btn btn-primary" onClick={handleDownload}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                                    Download All Data
+                                </button>
                             </div>
-                        </div>
-                    </div>
-                )}
 
-                {tab === 'account' && (
-                    <div className="settings-panel">
-                        <div className="settings-group">
-                            <h3>Profile</h3>
-                            <div className="settings-row"><span className="label">Name</span><span>{user?.name}</span></div>
-                            <div className="settings-row"><span className="label">Email</span><span>{user?.email}</span></div>
-                            <div className="settings-row"><span className="label">Role</span><span className={`role-badge ${user?.role}`}>{user?.role}</span></div>
-                        </div>
-                        <div className="settings-group">
-                            <h3>Change Password</h3>
-                            <form onSubmit={handleChangePassword}>
-                                <div className="form-group">
-                                    <label>Current Password</label>
-                                    <input className="input" type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required />
-                                </div>
-                                <div className="form-group">
-                                    <label>New Password</label>
-                                    <input className="input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={6} />
-                                </div>
-                                <button className="btn btn-primary" type="submit">Update Password</button>
-                            </form>
-                        </div>
-                        <div className="settings-group" style={{ marginTop: 24 }}>
-                            <button className="btn btn-danger" onClick={logout}>Sign Out</button>
-                        </div>
-                    </div>
-                )}
+                            <div className="settings-group">
+                                <h3>Database Backup</h3>
+                                <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+                                    Create a snapshot of the current database. Useful before making major changes.
+                                </p>
+                                <button className="btn btn-primary" onClick={handleCreateBackup} disabled={creatingBackup}>
+                                    {creatingBackup ? 'Creating...' : 'Create Backup'}
+                                </button>
+                            </div>
 
-                {tab === 'admin' && (
-                    <div className="settings-panel">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                            <h3 style={{ margin: 0, color: 'var(--text-tertiary)', fontSize: 'var(--font-size-sm)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>User Management</h3>
-                            <button className="btn btn-primary" onClick={() => setShowAddUser(!showAddUser)} style={{ fontSize: 'var(--font-size-xs)', padding: '4px 10px' }}>
-                                + Add User
-                            </button>
-                        </div>
-
-                        {showAddUser && (
-                            <form onSubmit={handleAddUser} style={{ marginBottom: 16, padding: 12, background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-                                <div className="form-group"><input className="input" type="text" placeholder="Name" value={newUserName} onChange={e => setNewUserName(e.target.value)} required /></div>
-                                <div className="form-group"><input className="input" type="email" placeholder="Email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} required /></div>
-                                <div className="form-group"><input className="input" type="password" placeholder="Password" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} required minLength={6} /></div>
-                                <div className="form-group">
-                                    <select className="select" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
-                                        <option value="user">User</option>
-                                        <option value="viewer">Viewer</option>
-                                        <option value="admin">Admin</option>
-                                    </select>
-                                </div>
-                                <button className="btn btn-primary" type="submit" style={{ fontSize: 'var(--font-size-xs)' }}>Create User</button>
-                            </form>
-                        )}
-
-                        {loadingUsers ? (
-                            <div style={{ textAlign: 'center', padding: 20 }}><span className="spinner" /></div>
-                        ) : (
-                            <table className="admin-table">
-                                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
-                                <tbody>
-                                    {users.map(u => (
-                                        <tr key={u.id}>
-                                            <td>{u.name}</td>
-                                            <td style={{ color: 'var(--text-tertiary)' }}>{u.email}</td>
-                                            <td>
-                                                <select className="select" value={u.role} onChange={e => handleChangeRole(u.id, e.target.value)} style={{ padding: '2px 6px', fontSize: 'var(--font-size-xs)' }}>
-                                                    <option value="admin">admin</option>
-                                                    <option value="user">user</option>
-                                                    <option value="viewer">viewer</option>
-                                                </select>
-                                            </td>
-                                            <td>
-                                                {u.id !== user.id && (
-                                                    <button className="btn-icon" onClick={() => handleDeleteUser(u.id)} title="Delete user">
+                            <div className="settings-group">
+                                <h3>Restore</h3>
+                                {loadingBackups ? (
+                                    <div style={{ textAlign: 'center', padding: 20 }}><span className="spinner" /></div>
+                                ) : backups.length === 0 ? (
+                                    <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-tertiary)' }}>No backups available.</p>
+                                ) : (
+                                    <div className="backup-list">
+                                        {backups.map(b => (
+                                            <div key={b.name} className="backup-item">
+                                                <div className="backup-info">
+                                                    <span className="backup-name">{b.name}</span>
+                                                    <span className="backup-meta">
+                                                        {new Date(b.created_at).toLocaleDateString()} · {formatSize(b.size)}
+                                                    </span>
+                                                </div>
+                                                <div className="backup-actions">
+                                                    {isAdmin && (
+                                                        <button className="btn btn-ghost" onClick={() => handleRestore(b.name)} style={{ fontSize: 'var(--font-size-xs)', padding: '2px 8px' }}>
+                                                            Restore
+                                                        </button>
+                                                    )}
+                                                    <button className="btn-icon" onClick={() => handleDeleteBackup(b.name)} title="Delete backup">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
                                                     </button>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
-                )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {tab === 'admin' && isAdmin && (
+                        <div className="settings-panel">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                <h3 style={{ margin: 0, color: 'var(--text-tertiary)', fontSize: 'var(--font-size-sm)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>User Management</h3>
+                                <button className="btn btn-primary" onClick={() => setShowAddUser(!showAddUser)} style={{ fontSize: 'var(--font-size-xs)', padding: '4px 10px' }}>+ Add User</button>
+                            </div>
+                            {showAddUser && (
+                                <form onSubmit={handleAddUser} style={{ marginBottom: 16, padding: 12, background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                                    <div className="form-group"><input className="input" type="text" placeholder="Name" value={newUserName} onChange={e => setNewUserName(e.target.value)} required /></div>
+                                    <div className="form-group"><input className="input" type="email" placeholder="Email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} required /></div>
+                                    <div className="form-group"><input className="input" type="password" placeholder="Password" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} required minLength={6} /></div>
+                                    <div className="form-group">
+                                        <select className="select" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
+                                            <option value="user">User</option><option value="viewer">Viewer</option><option value="admin">Admin</option>
+                                        </select>
+                                    </div>
+                                    <button className="btn btn-primary" type="submit" style={{ fontSize: 'var(--font-size-xs)' }}>Create User</button>
+                                </form>
+                            )}
+                            {loadingUsers ? (
+                                <div style={{ textAlign: 'center', padding: 20 }}><span className="spinner" /></div>
+                            ) : (
+                                <table className="admin-table">
+                                    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
+                                    <tbody>
+                                        {users.map(u => (
+                                            <tr key={u.id}>
+                                                <td>{u.name}</td>
+                                                <td style={{ color: 'var(--text-tertiary)' }}>{u.email}</td>
+                                                <td>
+                                                    <select className="select" value={u.role} onChange={e => handleChangeRole(u.id, e.target.value)} style={{ padding: '2px 6px', fontSize: 'var(--font-size-xs)' }}>
+                                                        <option value="admin">admin</option><option value="user">user</option><option value="viewer">viewer</option>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    {u.id !== user.id && (
+                                                        <button className="btn-icon" onClick={() => handleDeleteUser(u.id)} title="Delete user">
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-primary)' }}>
+                    <button className="btn btn-primary" onClick={handleSaveAndClose}>Save & Close</button>
+                </div>
             </div>
+
+            {confirmAction && (
+                <ConfirmModal
+                    title={confirmAction.title}
+                    message={confirmAction.message}
+                    danger={confirmAction.danger}
+                    confirmLabel={confirmAction.confirmLabel || 'Confirm'}
+                    onConfirm={confirmAction.onConfirm}
+                    onCancel={() => setConfirmAction(null)}
+                />
+            )}
         </div>
     );
 }

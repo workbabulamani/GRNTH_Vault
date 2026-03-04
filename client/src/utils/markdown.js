@@ -5,6 +5,7 @@ const md = markdownIt({
     html: true,
     linkify: true,
     typographer: true,
+    breaks: true, // Enable GFM line breaks (newline → <br>)
     highlight: (str, lang) => {
         const langLabel = lang || 'text';
         const langClass = lang && hljs.getLanguage(lang) ? lang : '';
@@ -22,14 +23,90 @@ const md = markdownIt({
     }
 });
 
-// Open all links in new tab
+// Smart link handling: external links open in a new tab, internal links handled in-app
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-    tokens[idx].attrSet('target', '_blank');
-    tokens[idx].attrSet('rel', 'noopener noreferrer');
+    const hrefIndex = tokens[idx].attrIndex('href');
+    const href = hrefIndex >= 0 ? tokens[idx].attrs[hrefIndex][1] : '';
+
+    if (/^(https?:\/\/|ftp:\/\/|mailto:)/i.test(href)) {
+        tokens[idx].attrSet('target', '_blank');
+        tokens[idx].attrSet('rel', 'noopener noreferrer');
+    } else if (href.startsWith('#')) {
+        // Same-file anchor link
+    } else {
+        tokens[idx].attrSet('data-internal-link', 'true');
+    }
     return self.renderToken(tokens, idx, options);
 };
 
-// Task list plugin
+// Add source line data attributes for scroll sync
+md.renderer.rules.paragraph_open = (tokens, idx, options, env, self) => {
+    if (tokens[idx].map && tokens[idx].map.length) {
+        tokens[idx].attrSet('data-source-line', tokens[idx].map[0]);
+    }
+    return self.renderToken(tokens, idx, options);
+};
+
+md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
+    if (tokens[idx].map && tokens[idx].map.length) {
+        tokens[idx].attrSet('data-source-line', tokens[idx].map[0]);
+        // Also add id for anchor links
+        const nextToken = tokens[idx + 1];
+        if (nextToken && nextToken.type === 'inline') {
+            const id = nextToken.content.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+            tokens[idx].attrSet('id', id);
+        }
+    }
+    return self.renderToken(tokens, idx, options);
+};
+
+md.renderer.rules.bullet_list_open = (tokens, idx, options, env, self) => {
+    if (tokens[idx].map && tokens[idx].map.length) {
+        tokens[idx].attrSet('data-source-line', tokens[idx].map[0]);
+    }
+    return self.renderToken(tokens, idx, options);
+};
+
+md.renderer.rules.ordered_list_open = (tokens, idx, options, env, self) => {
+    if (tokens[idx].map && tokens[idx].map.length) {
+        tokens[idx].attrSet('data-source-line', tokens[idx].map[0]);
+    }
+    return self.renderToken(tokens, idx, options);
+};
+
+md.renderer.rules.fence = ((originalRule) => {
+    return (tokens, idx, options, env, self) => {
+        if (tokens[idx].map && tokens[idx].map.length) {
+            // Wrap the code block in a container with source line
+            const html = originalRule ? originalRule(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
+            return `<div data-source-line="${tokens[idx].map[0]}">${html}</div>`;
+        }
+        return originalRule ? originalRule(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
+    };
+})(md.renderer.rules.fence);
+
+md.renderer.rules.blockquote_open = (tokens, idx, options, env, self) => {
+    if (tokens[idx].map && tokens[idx].map.length) {
+        tokens[idx].attrSet('data-source-line', tokens[idx].map[0]);
+    }
+    return self.renderToken(tokens, idx, options);
+};
+
+md.renderer.rules.table_open = (tokens, idx, options, env, self) => {
+    if (tokens[idx].map && tokens[idx].map.length) {
+        tokens[idx].attrSet('data-source-line', tokens[idx].map[0]);
+    }
+    return self.renderToken(tokens, idx, options);
+};
+
+md.renderer.rules.hr = (tokens, idx, options, env, self) => {
+    if (tokens[idx].map && tokens[idx].map.length) {
+        return `<hr data-source-line="${tokens[idx].map[0]}">`;
+    }
+    return '<hr>';
+};
+
+// Task list plugin — rewritten to handle list items properly
 md.core.ruler.after('inline', 'task-lists', (state) => {
     const tokens = state.tokens;
     for (let i = 0; i < tokens.length; i++) {

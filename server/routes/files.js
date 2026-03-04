@@ -4,7 +4,7 @@ import { requireRole } from '../middleware/rbac.js';
 
 const router = Router();
 
-// Search files in a collection (MUST be before /:id so "search" isn't treated as an id)
+// Search files in a collection — filename only (case-insensitive partial match)
 router.get('/search/:collectionId', (req, res) => {
     try {
         const { q } = req.query;
@@ -13,20 +13,35 @@ router.get('/search/:collectionId', (req, res) => {
       SELECT fi.*, fo.name as folder_name
       FROM files fi
       JOIN folders fo ON fi.folder_id = fo.id
-      WHERE fo.collection_id = ? AND (fi.name LIKE ? OR fi.content LIKE ?)
-      ORDER BY fi.name
+      WHERE fo.collection_id = ? AND LOWER(fi.name) LIKE LOWER(?)
+      ORDER BY
+        CASE WHEN LOWER(fi.name) = LOWER(?) THEN 0
+             WHEN LOWER(fi.name) LIKE LOWER(?) THEN 1
+             ELSE 2 END,
+        fi.name
       LIMIT 50
-    `).all(req.params.collectionId, `%${q}%`, `%${q}%`);
+    `).all(
+            req.params.collectionId,
+            `%${q}%`,
+            q.endsWith('.md') ? q : `${q}.md`,
+            `${q}%`
+        );
         res.json({ files });
     } catch (err) {
+        console.error('Search error:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Get file content
+// Get file content (includes folder_name for metadata display)
 router.get('/:id', (req, res) => {
     try {
-        const file = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id);
+        const file = db.prepare(`
+            SELECT fi.*, fo.name as folder_name
+            FROM files fi
+            LEFT JOIN folders fo ON fi.folder_id = fo.id
+            WHERE fi.id = ?
+        `).get(req.params.id);
         if (!file) return res.status(404).json({ error: 'File not found' });
         res.json({ file });
     } catch (err) {
@@ -34,7 +49,7 @@ router.get('/:id', (req, res) => {
     }
 });
 
-// Create file
+// Create file (with duplicate name check within same folder)
 router.post('/', requireRole('admin', 'user'), (req, res) => {
     try {
         const { name, folder_id, content } = req.body;
@@ -42,6 +57,15 @@ router.post('/', requireRole('admin', 'user'), (req, res) => {
             return res.status(400).json({ error: 'Name and folder_id are required' });
         }
         const fileName = name.endsWith('.md') ? name : `${name}.md`;
+
+        // Check for duplicate filename in same folder
+        const existing = db.prepare(
+            'SELECT id FROM files WHERE LOWER(name) = LOWER(?) AND folder_id = ?'
+        ).get(fileName, folder_id);
+        if (existing) {
+            return res.status(409).json({ error: `A file named "${fileName}" already exists in this folder. Please choose a different name.` });
+        }
+
         const result = db.prepare('INSERT INTO files (name, folder_id, content) VALUES (?, ?, ?)').run(
             fileName, folder_id, content || ''
         );
@@ -62,6 +86,13 @@ router.put('/:id', requireRole('admin', 'user'), (req, res) => {
 
         if (name !== undefined) {
             const fileName = name.endsWith('.md') ? name : `${name}.md`;
+            // Check for duplicate name in same folder (excluding current file)
+            const existing = db.prepare(
+                'SELECT id FROM files WHERE LOWER(name) = LOWER(?) AND folder_id = ? AND id != ?'
+            ).get(fileName, file.folder_id, file.id);
+            if (existing) {
+                return res.status(409).json({ error: `A file named "${fileName}" already exists in this folder.` });
+            }
             db.prepare('UPDATE files SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(fileName, req.params.id);
         }
         if (content !== undefined) {
@@ -82,25 +113,6 @@ router.delete('/:id', requireRole('admin', 'user'), (req, res) => {
         if (!file) return res.status(404).json({ error: 'File not found' });
         db.prepare('DELETE FROM files WHERE id = ?').run(req.params.id);
         res.json({ message: 'File deleted' });
-    } catch (err) {
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Search files in a collection
-router.get('/search/:collectionId', (req, res) => {
-    try {
-        const { q } = req.query;
-        if (!q) return res.json({ files: [] });
-        const files = db.prepare(`
-      SELECT fi.*, fo.name as folder_name
-      FROM files fi
-      JOIN folders fo ON fi.folder_id = fo.id
-      WHERE fo.collection_id = ? AND (fi.name LIKE ? OR fi.content LIKE ?)
-      ORDER BY fi.name
-      LIMIT 50
-    `).all(req.params.collectionId, `%${q}%`, `%${q}%`);
-        res.json({ files });
     } catch (err) {
         res.status(500).json({ error: 'Internal server error' });
     }

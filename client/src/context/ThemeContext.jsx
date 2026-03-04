@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { api } from '../api/client.js';
 
 const ThemeContext = createContext(null);
 
@@ -10,6 +11,7 @@ export const THEMES = [
     { id: 'high-contrast', name: 'High Contrast', icon: '🔲' },
     { id: 'solarized-dark', name: 'Solarized Dark', icon: '🌅' },
     { id: 'nord', name: 'Nord', icon: '❄️' },
+    { id: 'rose-pine', name: 'Rosé Pine', icon: '🌸' },
 ];
 
 export const ACCENT_COLORS = [
@@ -21,19 +23,62 @@ export const ACCENT_COLORS = [
     { id: 'amber', name: 'Amber', hue: '38', color: '#f59e0b' },
     { id: 'cyan', name: 'Cyan', hue: '192', color: '#06b6d4' },
     { id: 'pink', name: 'Pink', hue: '330', color: '#ec4899' },
+    { id: 'teal', name: 'Teal', hue: '173', color: '#14b8a6' },
+    { id: 'orange', name: 'Orange', hue: '25', color: '#f97316' },
 ];
 
 export function ThemeProvider({ children }) {
-    const [theme, setTheme] = useState(() => {
+    const [theme, setThemeState] = useState(() => {
         return localStorage.getItem('sutrabase_theme') || 'dark';
     });
-    const [accentColor, setAccentColor] = useState(() => {
+    const [accentColor, setAccentColorState] = useState(() => {
         return localStorage.getItem('sutrabase_accent') || 'indigo';
     });
+    const [prefsLoaded, setPrefsLoaded] = useState(false);
+    const saveTimerRef = useRef(null);
+
+    // Load preferences from server on mount
+    useEffect(() => {
+        const token = localStorage.getItem('md_viewer_token');
+        if (!token) { setPrefsLoaded(true); return; }
+        api.getPreferences().then(data => {
+            const prefs = data.preferences || {};
+            if (prefs.theme && THEMES.some(t => t.id === prefs.theme)) {
+                setThemeState(prefs.theme);
+                localStorage.setItem('sutrabase_theme', prefs.theme);
+            }
+            if (prefs.accentColor && ACCENT_COLORS.some(a => a.id === prefs.accentColor)) {
+                setAccentColorState(prefs.accentColor);
+                localStorage.setItem('sutrabase_accent', prefs.accentColor);
+            }
+            setPrefsLoaded(true);
+        }).catch(() => { setPrefsLoaded(true); });
+    }, []);
+
+    // Debounced save to server
+    const saveToServer = useCallback((newTheme, newAccent) => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+            const token = localStorage.getItem('md_viewer_token');
+            if (!token) return;
+            api.savePreferences({ theme: newTheme, accentColor: newAccent }).catch(() => { });
+        }, 500);
+    }, []);
+
+    const setTheme = useCallback((newTheme) => {
+        setThemeState(newTheme);
+        localStorage.setItem('sutrabase_theme', newTheme);
+        saveToServer(newTheme, accentColor);
+    }, [accentColor, saveToServer]);
+
+    const setAccentColor = useCallback((newAccent) => {
+        setAccentColorState(newAccent);
+        localStorage.setItem('sutrabase_accent', newAccent);
+        saveToServer(theme, newAccent);
+    }, [theme, saveToServer]);
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('sutrabase_theme', theme);
     }, [theme]);
 
     useEffect(() => {
@@ -41,13 +86,12 @@ export function ThemeProvider({ children }) {
         document.documentElement.setAttribute('data-accent', accentColor);
         document.documentElement.style.setProperty('--accent-hue', accent.hue);
         document.documentElement.style.setProperty('--accent-color', accent.color);
-        localStorage.setItem('sutrabase_accent', accentColor);
     }, [accentColor]);
 
     const cycleTheme = useCallback(() => {
         const idx = THEMES.findIndex(t => t.id === theme);
         setTheme(THEMES[(idx + 1) % THEMES.length].id);
-    }, [theme]);
+    }, [theme, setTheme]);
 
     return (
         <ThemeContext.Provider value={{ theme, setTheme, cycleTheme, accentColor, setAccentColor }}>

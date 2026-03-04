@@ -12,6 +12,8 @@ import filesRoutes from './routes/files.js';
 import bookmarksRoutes from './routes/bookmarks.js';
 import uploadRoutes from './routes/upload.js';
 import adminRoutes from './routes/admin.js';
+import backupRoutes from './routes/backup.js';
+import preferencesRoutes from './routes/preferences.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -24,17 +26,16 @@ initDB();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Static files - uploads
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// Static files - uploads (resolve the actual upload directory)
+const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads', 'images');
+const uploadsBase = path.resolve(uploadDir, '..');
+app.use('/uploads', express.static(uploadsBase));
 
 // Auth routes need special handling: login and signup are public, others are protected
-// We use a middleware that conditionally applies auth
 const optionalAuth = (req, res, next) => {
-    // Login and signup are public
     if (req.method === 'POST' && (req.path === '/login' || req.path === '/signup')) {
         return next();
     }
-    // Everything else needs auth
     return authenticate(req, res, next);
 };
 
@@ -47,6 +48,8 @@ app.use('/api/files', authenticate, filesRoutes);
 app.use('/api/bookmarks', authenticate, bookmarksRoutes);
 app.use('/api/upload', authenticate, uploadRoutes);
 app.use('/api/admin', authenticate, adminRoutes);
+app.use('/api/backup', authenticate, backupRoutes);
+app.use('/api/preferences', authenticate, preferencesRoutes);
 
 // Serve client build in production
 const clientDist = path.join(__dirname, 'public');
@@ -58,5 +61,5 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 SutraBase server running on http://localhost:${PORT}`);
+    console.log(`🚀 Sutra Knowledge Base server running on http://localhost:${PORT}`);
 });

@@ -13,14 +13,24 @@ export function AppProvider({ children }) {
     const [activeTabId, setActiveTabId] = useState(null);
     const [bookmarks, setBookmarks] = useState([]);
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sidebarWidth, setSidebarWidth] = useState(260);
     const [editMode, setEditMode] = useState(true);
     const [toasts, setToasts] = useState([]);
+    const [autoSaveStatus, setAutoSaveStatus] = useState('');
+    const [zoomLevel, setZoomLevel] = useState(100);
+    const [liveEdit, setLiveEdit] = useState(false);
+    const [readOnly, setReadOnly] = useState(false);
     const saveTimerRef = useRef({});
 
     const addToast = useCallback((message, duration = 3000) => {
         const id = Date.now();
         setToasts(prev => [...prev, { id, message }]);
         setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
+    }, []);
+
+    const showAutoSaveStatus = useCallback((msg) => {
+        setAutoSaveStatus(msg);
+        setTimeout(() => setAutoSaveStatus(''), 2500);
     }, []);
 
     // Load collections
@@ -66,13 +76,18 @@ export function AppProvider({ children }) {
         }
         try {
             const data = await api.getFile(fileId);
+            const f = data.file;
             const newTab = {
                 id: `tab-${fileId}-${Date.now()}`,
-                fileId: data.file.id,
-                name: data.file.name,
-                content: data.file.content,
-                savedContent: data.file.content,
-                modified: false
+                fileId: f.id,
+                name: f.name,
+                content: f.content,
+                savedContent: f.content,
+                modified: false,
+                created_at: f.created_at,
+                updated_at: f.updated_at,
+                folder_name: f.folder_name || null,
+                folder_id: f.folder_id
             };
             setTabs(prev => [...prev, newTab]);
             setActiveTabId(newTab.id);
@@ -93,7 +108,6 @@ export function AppProvider({ children }) {
             }
             return newTabs;
         });
-        // Clear any pending save timer
         if (saveTimerRef.current[tabId]) {
             clearTimeout(saveTimerRef.current[tabId]);
             delete saveTimerRef.current[tabId];
@@ -109,15 +123,18 @@ export function AppProvider({ children }) {
         saveTimerRef.current[tabId] = setTimeout(async () => {
             const tab = tabs.find(t => t.id === tabId) || {};
             try {
+                showAutoSaveStatus('Saving...');
                 await api.updateFile(tab.fileId, { content });
                 setTabs(prev => prev.map(t =>
                     t.id === tabId ? { ...t, savedContent: content, modified: false } : t
                 ));
+                showAutoSaveStatus('Auto-saved');
             } catch (err) {
                 console.error('Auto-save failed:', err);
+                showAutoSaveStatus('Save failed');
             }
         }, 1000);
-    }, [tabs]);
+    }, [tabs, showAutoSaveStatus]);
 
     const saveActiveFile = useCallback(async () => {
         const tab = tabs.find(t => t.id === activeTabId);
@@ -127,11 +144,11 @@ export function AppProvider({ children }) {
             setTabs(prev => prev.map(t =>
                 t.id === activeTabId ? { ...t, savedContent: tab.content, modified: false } : t
             ));
-            addToast('File saved');
+            showAutoSaveStatus('Saved');
         } catch (err) {
             addToast('Failed to save file');
         }
-    }, [tabs, activeTabId, addToast]);
+    }, [tabs, activeTabId, addToast, showAutoSaveStatus]);
 
     const toggleBookmark = useCallback(async (fileId, folderId) => {
         try {
@@ -142,11 +159,20 @@ export function AppProvider({ children }) {
         }
     }, [loadBookmarks, addToast]);
 
-    const switchCollection = useCallback((collection) => {
+    const switchCollection = useCallback(async (collection) => {
+        for (const tab of tabs) {
+            if (tab.modified) {
+                try {
+                    await api.updateFile(tab.fileId, { content: tab.content });
+                } catch (err) {
+                    console.error('Failed to save file before switching:', err);
+                }
+            }
+        }
         setActiveCollection(collection);
         setTabs([]);
         setActiveTabId(null);
-    }, []);
+    }, [tabs]);
 
     const activeTab = tabs.find(t => t.id === activeTabId) || null;
     const canEdit = user && (user.role === 'admin' || user.role === 'user');
@@ -154,11 +180,13 @@ export function AppProvider({ children }) {
     return (
         <AppContext.Provider value={{
             collections, activeCollection, tree, tabs, activeTabId, activeTab, bookmarks,
-            sidebarOpen, editMode, toasts, canEdit,
-            setSidebarOpen, setEditMode, setActiveTabId,
+            sidebarOpen, sidebarWidth, editMode, toasts, canEdit,
+            autoSaveStatus, zoomLevel, liveEdit, readOnly,
+            setSidebarOpen, setSidebarWidth, setEditMode, setActiveTabId,
+            setZoomLevel, setLiveEdit, setReadOnly,
             loadCollections, loadTree, loadBookmarks,
             openFile, closeTab, updateTabContent, saveActiveFile,
-            toggleBookmark, switchCollection, addToast,
+            toggleBookmark, switchCollection, addToast, showAutoSaveStatus,
         }}>
             {children}
         </AppContext.Provider>

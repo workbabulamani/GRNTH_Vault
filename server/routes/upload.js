@@ -3,9 +3,12 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { fileURLToPath } from 'url';
 import { requireRole } from '../middleware/rbac.js';
 
-const uploadDir = process.env.UPLOAD_DIR || './uploads/images';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Use UPLOAD_DIR env var, or default to <project_root>/uploads/images
+const uploadDir = process.env.UPLOAD_DIR || path.resolve(__dirname, '..', '..', 'uploads', 'images');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({

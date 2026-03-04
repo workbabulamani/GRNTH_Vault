@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view';
 import { EditorState, Prec } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -41,36 +41,30 @@ function makeAutoPairKeymap() {
                     const line = state.doc.lineAt(from);
                     const lineText = state.doc.sliceString(line.from, from);
                     if (lineText === '``' && nextChar !== '`') {
-                        // Third backtick typed at start of line -> fenced code block
-                        // Insert: `\n\n``` (cursor lands on blank line)
                         const insert = `\`\n\n\`\`\``;
                         view.dispatch({
                             changes: { from, to, insert },
-                            selection: { anchor: from + 2 }, // after the newline, on blank line
+                            selection: { anchor: from + 2 },
                         });
                         return true;
                     }
-                    // For backtick: if next char is also backtick, skip over it
                     if (SYMMETRIC.has(open) && nextChar === close && !selectedText) {
                         view.dispatch({ selection: { anchor: from + 1 } });
                         return true;
                     }
                 }
 
-                // For symmetric pairs: if next char is already the closing char, skip over it
                 if (SYMMETRIC.has(open) && nextChar === close && !selectedText) {
                     view.dispatch({ selection: { anchor: from + 1 } });
                     return true;
                 }
 
                 if (selectedText) {
-                    // Wrap selected text in the pair
                     view.dispatch({
                         changes: { from, to, insert: open + selectedText + close },
                         selection: { anchor: from + 1, head: to + 1 },
                     });
                 } else {
-                    // Insert pair and place cursor between them
                     view.dispatch({
                         changes: { from, to, insert: open + close },
                         selection: { anchor: from + 1 },
@@ -80,7 +74,6 @@ function makeAutoPairKeymap() {
             }
         });
 
-        // For asymmetric pairs: handle pressing the closing char to skip over it
         if (open !== close) {
             bindings.push({
                 key: close,
@@ -100,18 +93,16 @@ function makeAutoPairKeymap() {
         }
     }
 
-    // Handle Backspace: delete BOTH chars when cursor is between a pair
     bindings.push({
         key: 'Backspace',
         run(view) {
             const { state } = view;
             const { from, to } = state.selection.main;
-            if (from !== to) return false; // has selection, don't intercept
+            if (from !== to) return false;
             if (from < 1) return false;
             const prevChar = state.doc.sliceString(from - 1, from);
             const nextChar = state.doc.sliceString(from, from + 1);
             if (AUTO_PAIRS[prevChar] !== undefined && AUTO_PAIRS[prevChar] === nextChar) {
-                // Cursor is between an auto-pair: delete both
                 view.dispatch({
                     changes: { from: from - 1, to: from + 1, insert: '' },
                     selection: { anchor: from - 1 },
@@ -125,106 +116,7 @@ function makeAutoPairKeymap() {
     return Prec.highest(keymap.of(bindings));
 }
 
-
-// Auto-pair map: opening char -> closing char
-const AUTO_PAIRS = {
-    '[': ']',
-    '(': ')',
-    '{': '}',
-    '"': '"',
-    "'": "'",
-    '`': '`',
-};
-
-// Custom keymap for auto-pairs and fenced code block auto-close
-function makeAutoPairKeymap() {
-    const bindings = [];
-
-    for (const [open, close] of Object.entries(AUTO_PAIRS)) {
-        bindings.push({
-            key: open,
-            run(view) {
-                const { state } = view;
-                const { from, to } = state.selection.main;
-                const selectedText = state.doc.sliceString(from, to);
-
-                // Special handling for backtick: detect ``` to create fenced block
-                if (open === '`') {
-                    // Get current line text up to cursor
-                    const line = state.doc.lineAt(from);
-                    const lineText = state.doc.sliceString(line.from, from);
-                    if (lineText === '``') {
-                        // User just typed third backtick - create fenced code block
-                        const insertion = `\`\n\n\`\`\``;
-                        view.dispatch({
-                            changes: { from, to, insert: insertion },
-                            selection: { anchor: from + 1 + 1 }, // put cursor on blank line
-                        });
-                        return true;
-                    }
-                }
-
-                if (selectedText) {
-                    // Wrap selected text
-                    view.dispatch({
-                        changes: { from, to, insert: open + selectedText + close },
-                        selection: { anchor: from + 1, head: to + 1 },
-                    });
-                } else {
-                    // Insert pair and place cursor between them
-                    view.dispatch({
-                        changes: { from, to, insert: open + close },
-                        selection: { anchor: from + 1 },
-                    });
-                }
-                return true;
-            }
-        });
-
-        // Handle pressing the closing char: skip over it if it's already there
-        if (open !== close) {
-            bindings.push({
-                key: close,
-                run(view) {
-                    const { state } = view;
-                    const { from, to } = state.selection.main;
-                    if (from === to) {
-                        const nextChar = state.doc.sliceString(from, from + 1);
-                        if (nextChar === close) {
-                            view.dispatch({ selection: { anchor: from + 1 } });
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            });
-        }
-    }
-
-    // Handle Backspace: delete pair if cursor is between opening+closing
-    bindings.push({
-        key: 'Backspace',
-        run(view) {
-            const { state } = view;
-            const { from, to } = state.selection.main;
-            if (from !== to) return false;
-            const prevChar = state.doc.sliceString(from - 1, from);
-            const nextChar = state.doc.sliceString(from, from + 1);
-            if (AUTO_PAIRS[prevChar] === nextChar) {
-                view.dispatch({
-                    changes: { from: from - 1, to: from + 1, insert: '' },
-                    selection: { anchor: from - 1 },
-                });
-                return true;
-            }
-            return false;
-        }
-    });
-
-    return keymap.of(bindings);
-}
-
-export default function Editor({ content, onChange }) {
+const Editor = forwardRef(function Editor({ content, onChange, onScroll }, ref) {
     const editorRef = useRef(null);
     const viewRef = useRef(null);
     const { theme } = useTheme();
@@ -233,6 +125,22 @@ export default function Editor({ content, onChange }) {
     onChangeRef.current = onChange;
     const addToastRef = useRef(addToast);
     addToastRef.current = addToast;
+    const onScrollRef = useRef(onScroll);
+    onScrollRef.current = onScroll;
+    const isSyncingRef = useRef(false);
+
+    useImperativeHandle(ref, () => ({
+        getView: () => viewRef.current,
+        scrollToPercent(pct) {
+            const view = viewRef.current;
+            if (!view) return;
+            isSyncingRef.current = true;
+            const scroller = view.scrollDOM;
+            const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+            scroller.scrollTop = maxScroll * pct;
+            requestAnimationFrame(() => { isSyncingRef.current = false; });
+        },
+    }));
 
     useEffect(() => {
         if (!editorRef.current) return;
@@ -254,7 +162,6 @@ export default function Editor({ content, onChange }) {
                 }
             }),
             EditorView.lineWrapping,
-            // Handle image paste via CodeMirror's event system
             EditorView.domEventHandlers({
                 paste(event, view) {
                     const items = event.clipboardData?.items;
@@ -272,10 +179,10 @@ export default function Editor({ content, onChange }) {
                             }).catch(() => {
                                 addToastRef.current('Image upload failed');
                             });
-                            return true; // Handled — don't propagate
+                            return true;
                         }
                     }
-                    return false; // Not handled — let CodeMirror handle text paste normally
+                    return false;
                 }
             }),
         ];
@@ -303,13 +210,24 @@ export default function Editor({ content, onChange }) {
 
         viewRef.current = view;
 
+        // Scroll sync: emit scroll percentage to parent
+        const scroller = view.scrollDOM;
+        const handleEditorScroll = () => {
+            if (isSyncingRef.current) return;
+            const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+            if (maxScroll <= 0) return;
+            const pct = scroller.scrollTop / maxScroll;
+            onScrollRef.current?.(pct);
+        };
+        scroller.addEventListener('scroll', handleEditorScroll, { passive: true });
+
         return () => {
+            scroller.removeEventListener('scroll', handleEditorScroll);
             view.destroy();
             viewRef.current = null;
         };
-    }, [theme]); // Recreate editor when theme changes
+    }, [theme]);
 
-    // Sync content from outside (switching tabs)
     useEffect(() => {
         if (viewRef.current) {
             const currentContent = viewRef.current.state.doc.toString();
@@ -322,4 +240,6 @@ export default function Editor({ content, onChange }) {
     }, [content]);
 
     return <div ref={editorRef} style={{ height: '100%', overflow: 'hidden' }} />;
-}
+});
+
+export default Editor;

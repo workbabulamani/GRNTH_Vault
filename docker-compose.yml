@@ -6,8 +6,10 @@ services:
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
+      - /app/node_modules
     environment:
       - JWT_SECRET=change-me-in-production-use-a-strong-secret
+      - ENCRYPTION_KEY=sutra-backup-encryption-key-change-me
       - PORT=3000
       - DB_PATH=/app/data/md_viewer.db
       - UPLOAD_DIR=/app/uploads/images

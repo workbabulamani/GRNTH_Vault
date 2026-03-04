@@ -71,6 +71,16 @@ export function initDB() {
       FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
       FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      pref_key TEXT NOT NULL,
+      pref_value TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(user_id, pref_key)
+    );
   `);
 
   // Seed default admin if no users exist

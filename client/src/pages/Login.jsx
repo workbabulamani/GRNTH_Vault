@@ -22,11 +22,11 @@ export default function Login({ onSwitch }) {
     };
 
     return (
-        <div className="auth-container">
+        <div className="auth-page">
             <div className="auth-card">
-                <span className="logo">📝</span>
+                <div className="auth-logo">📝</div>
                 <h1>Welcome back</h1>
-                <p className="subtitle">Sign in to SutraBase</p>
+                <p className="auth-subtitle">Sign in to Sutra Knowledge Base</p>
                 {error && <div className="auth-error">{error}</div>}
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
@@ -37,11 +37,11 @@ export default function Login({ onSwitch }) {
                         <label>Password</label>
                         <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required />
                     </div>
-                    <button className="btn btn-primary" type="submit" disabled={loading}>
+                    <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: '100%' }}>
                         {loading ? <span className="spinner" /> : 'Sign In'}
                     </button>
                 </form>
-                <div className="auth-link">
+                <div className="auth-footer">
                     Don't have an account? <a href="#" onClick={(e) => { e.preventDefault(); onSwitch(); }}>Sign up</a>
                 </div>
             </div>

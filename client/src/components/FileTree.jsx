@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../api/client.js';
+import ConfirmModal from './ConfirmModal.jsx';
 
 // SVG Icons
 const ChevronRight = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>;
@@ -11,7 +12,6 @@ const StarIcon = ({ filled }) => filled
     ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
     : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>;
 
-// Expand All — multiple chevrons pointing down
 const ExpandAllIcon = () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <polyline points="6 7 12 13 18 7" />
@@ -19,7 +19,6 @@ const ExpandAllIcon = () => (
     </svg>
 );
 
-// Collapse All — multiple chevrons pointing up
 const CollapseAllIcon = () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <polyline points="6 11 12 5 18 11" />
@@ -27,7 +26,21 @@ const CollapseAllIcon = () => (
     </svg>
 );
 
-function FileTreeNode({ node, depth = 0, expandedFolders, toggleFolder, onContextMenu, renamingId, renameValue, setRenameValue, submitRename, cancelRename, selectedFolderId }) {
+// Find the folder that contains a given file ID
+function findFolderContainingFile(nodes, fileId) {
+    for (const node of nodes) {
+        if (node.type === 'folder' && node.children) {
+            for (const child of node.children) {
+                if (child.type === 'file' && child.id === fileId) return node.id;
+            }
+            const found = findFolderContainingFile(node.children, fileId);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function FileTreeNode({ node, depth = 0, expandedFolders, toggleFolder, onContextMenu, renamingId, renameValue, setRenameValue, submitRename, cancelRename, selectedFolderId, activeFolderId }) {
     const { openFile, activeTabId, tabs, toggleBookmark, bookmarks, canEdit } = useApp();
     const isFolder = node.type === 'folder';
     const isExpanded = expandedFolders.has(node.id);
@@ -35,6 +48,7 @@ function FileTreeNode({ node, depth = 0, expandedFolders, toggleFolder, onContex
     const isBookmarked = bookmarks.some(b => isFolder ? b.folder_id === node.id : b.file_id === node.id);
     const isRenaming = renamingId === `${node.type}-${node.id}`;
     const isSelected = isFolder && selectedFolderId === node.id;
+    const isFolderActive = isFolder && activeFolderId === node.id;
     const renameRef = useRef(null);
 
     useEffect(() => {
@@ -56,7 +70,7 @@ function FileTreeNode({ node, depth = 0, expandedFolders, toggleFolder, onContex
     return (
         <div className="tree-node">
             <div
-                className={`tree-node-row${isActive ? ' active' : ''}${isSelected ? ' selected' : ''}`}
+                className={`tree-node-row${isActive ? ' active' : ''}${isSelected ? ' selected' : ''}${isFolderActive ? ' folder-active' : ''}`}
                 style={{ paddingLeft: `${depth * 16 + 8}px` }}
                 onClick={handleClick}
                 onContextMenu={(e) => onContextMenu(e, node)}
@@ -115,6 +129,7 @@ function FileTreeNode({ node, depth = 0, expandedFolders, toggleFolder, onContex
                             submitRename={submitRename}
                             cancelRename={cancelRename}
                             selectedFolderId={selectedFolderId}
+                            activeFolderId={activeFolderId}
                         />
                     ))}
                 </div>
@@ -123,14 +138,18 @@ function FileTreeNode({ node, depth = 0, expandedFolders, toggleFolder, onContex
     );
 }
 
-export default function FileTree() {
-    const { tree, activeCollection, loadTree, canEdit, addToast, openFile } = useApp();
+export default function FileTree({ onUploadClick, collectionControls }) {
+    const { tree, activeCollection, loadTree, canEdit, addToast, openFile, bookmarks, activeTab, tabs, activeTabId } = useApp();
     const [expandedFolders, setExpandedFolders] = useState(new Set());
     const [contextMenu, setContextMenu] = useState(null);
     const [selectedFolderId, setSelectedFolderId] = useState(null);
     const [renamingId, setRenamingId] = useState(null);
     const [renameValue, setRenameValue] = useState('');
-    const renameMetaRef = useRef(null); // { type, id, isNew }
+    const [confirmAction, setConfirmAction] = useState(null);
+    const renameMetaRef = useRef(null);
+
+    // Find active file's parent folder
+    const activeFolderId = activeTab ? findFolderContainingFile(tree, activeTab.fileId) : null;
 
     const toggleFolder = useCallback((folderId) => {
         setSelectedFolderId(folderId);
@@ -169,7 +188,6 @@ export default function FileTree() {
 
     const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
-    // --- Inline rename logic ---
     const startRename = useCallback((type, id, currentName) => {
         setRenamingId(`${type}-${id}`);
         setRenameValue(currentName);
@@ -181,14 +199,10 @@ export default function FileTree() {
         if (!meta) { setRenamingId(null); return; }
         const trimmed = renameValue.trim();
         if (!trimmed) {
-            // If it's a newly created item with no name, delete it
             if (meta.isNew) {
                 try {
-                    if (meta.type === 'folder') {
-                        await api.deleteFolder(meta.id);
-                    } else {
-                        await api.deleteFile(meta.id);
-                    }
+                    if (meta.type === 'folder') await api.deleteFolder(meta.id);
+                    else await api.deleteFile(meta.id);
                 } catch (_) { }
             }
             setRenamingId(null);
@@ -204,7 +218,6 @@ export default function FileTree() {
                 await api.updateFile(meta.id, { name: fileName });
             }
             await loadTree();
-            // If it's a newly created file, open it
             if (meta.isNew && meta.type === 'file') {
                 openFile(meta.id, trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`);
             }
@@ -219,11 +232,8 @@ export default function FileTree() {
         const meta = renameMetaRef.current;
         if (meta?.isNew) {
             try {
-                if (meta.type === 'folder') {
-                    await api.deleteFolder(meta.id);
-                } else {
-                    await api.deleteFile(meta.id);
-                }
+                if (meta.type === 'folder') await api.deleteFolder(meta.id);
+                else await api.deleteFile(meta.id);
             } catch (_) { }
             loadTree();
         }
@@ -231,24 +241,26 @@ export default function FileTree() {
         renameMetaRef.current = null;
     }, [loadTree]);
 
-    // --- CRUD ---
     const handleDelete = useCallback(async (node) => {
         closeContextMenu();
-        if (!confirm(`Delete "${node.name}"?`)) return;
-        try {
-            if (node.type === 'folder') {
-                await api.deleteFolder(node.id);
-            } else {
-                await api.deleteFile(node.id);
-            }
-            loadTree();
-            addToast(`Deleted "${node.name}"`);
-        } catch (err) {
-            addToast('Failed to delete');
-        }
+        setConfirmAction({
+            title: `Delete "${node.name}"?`,
+            message: `This will permanently delete this ${node.type}. This action cannot be undone.`,
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    if (node.type === 'folder') await api.deleteFolder(node.id);
+                    else await api.deleteFile(node.id);
+                    loadTree();
+                    addToast(`Deleted "${node.name}"`);
+                } catch (err) {
+                    addToast('Failed to delete');
+                }
+                setConfirmAction(null);
+            },
+        });
     }, [loadTree, addToast, closeContextMenu]);
 
-    // New file — create with temp name and inline rename (like folders)
     const handleNewFile = useCallback(async (parentFolder) => {
         closeContextMenu();
         const targetFolder = parentFolder
@@ -268,7 +280,6 @@ export default function FileTree() {
             }
             await loadTree();
             setExpandedFolders(prev => new Set([...prev, targetFolder.id]));
-            // Start inline rename immediately
             setRenamingId(`file-${newId}`);
             setRenameValue('Untitled');
             renameMetaRef.current = { type: 'file', id: newId, isNew: true };
@@ -290,7 +301,6 @@ export default function FileTree() {
             if (parentFolder && !expandedFolders.has(parentFolder.id)) {
                 setExpandedFolders(prev => new Set([...prev, parentFolder.id]));
             }
-            // Start inline rename immediately
             const newId = result.folder?.id ?? result.id;
             if (newId) {
                 setRenamingId(`folder-${newId}`);
@@ -318,6 +328,15 @@ export default function FileTree() {
                         <button className="btn-icon" title="New Folder" onClick={() => handleNewFolder(null)}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /><line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" /></svg>
                         </button>
+                        {onUploadClick && (
+                            <button className="btn-icon" title="Upload .md / .txt files" onClick={onUploadClick}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                                    <polyline points="17 8 12 3 7 8" />
+                                    <line x1="12" y1="3" x2="12" y2="15" />
+                                </svg>
+                            </button>
+                        )}
                     </>
                 )}
                 <button className="btn-icon" title="Expand All" onClick={expandAll}>
@@ -328,7 +347,11 @@ export default function FileTree() {
                 </button>
             </div>
 
+            {collectionControls}
+
             <div className="sidebar-tree">
+                <BookmarksFolder bookmarks={bookmarks} openFile={openFile} />
+
                 {tree.length === 0 ? (
                     <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--font-size-sm)' }}>
                         {canEdit ? 'No files yet. Create a folder to get started.' : 'No files available.'}
@@ -348,6 +371,7 @@ export default function FileTree() {
                             submitRename={submitRename}
                             cancelRename={cancelRename}
                             selectedFolderId={selectedFolderId}
+                            activeFolderId={activeFolderId}
                         />
                     ))
                 )}
@@ -385,7 +409,77 @@ export default function FileTree() {
                     </div>
                 </>
             )}
+
+            {confirmAction && (
+                <ConfirmModal
+                    title={confirmAction.title}
+                    message={confirmAction.message}
+                    danger={confirmAction.danger}
+                    confirmLabel="Delete"
+                    onConfirm={confirmAction.onConfirm}
+                    onCancel={() => setConfirmAction(null)}
+                />
+            )}
         </>
+    );
+}
+
+// Bookmarks virtual folder
+function BookmarksFolder({ bookmarks, openFile }) {
+    const [expanded, setExpanded] = useState(false);
+    if (!bookmarks || bookmarks.length === 0) {
+        return (
+            <div className="tree-node bookmarks-folder">
+                <div className="tree-node-row" onClick={() => setExpanded(!expanded)} style={{ paddingLeft: 8 }}>
+                    <span className={`chevron${expanded ? ' expanded' : ''}`}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+                    </span>
+                    <span className="icon" style={{ color: 'var(--accent-color)' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--accent-color)" stroke="var(--accent-color)" strokeWidth="1.5">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                        </svg>
+                    </span>
+                    <span className="name" style={{ fontWeight: 500, opacity: 0.6 }}>Bookmarks</span>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="tree-node bookmarks-folder">
+            <div className="tree-node-row" onClick={() => setExpanded(!expanded)} style={{ paddingLeft: 8 }}>
+                <span className={`chevron${expanded ? ' expanded' : ''}`}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+                </span>
+                <span className="icon" style={{ color: 'var(--accent-color)' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--accent-color)" stroke="var(--accent-color)" strokeWidth="1.5">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                    </svg>
+                </span>
+                <span className="name" style={{ fontWeight: 500 }}>Bookmarks</span>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)', marginLeft: 6 }}>{bookmarks.length}</span>
+            </div>
+            {expanded && (
+                <div className="tree-node-children">
+                    {bookmarks.map(bm => (
+                        <div
+                            key={bm.id || bm.file_id}
+                            className="tree-node-row bookmark-item"
+                            style={{ paddingLeft: 36 }}
+                            onClick={() => openFile(bm.file_id || bm.id, bm.file_name || bm.name || 'Untitled')}
+                        >
+                            <span className="icon file-icon">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                                    <polyline points="14 2 14 8 20 8" />
+                                </svg>
+                            </span>
+                            <span className="name" title={bm.file_name || bm.name || 'Untitled'}>{bm.file_name || bm.name || 'Untitled'}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 

@@ -72,4 +72,28 @@ export const api = {
     updateUser: (id, data) => request(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     deleteUser: (id) => request(`/admin/users/${id}`, { method: 'DELETE' }),
     createUser: (data) => request('/admin/users', { method: 'POST', body: JSON.stringify(data) }),
+
+    // Backup
+    createBackup: () => request('/backup/create', { method: 'POST' }),
+    listBackups: () => request('/backup/list'),
+    downloadBackup: async () => {
+        const token = getToken();
+        const res = await fetch(`${API_BASE}/backup/download`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Download failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sutra_backup_${new Date().toISOString().slice(0, 10)}`;
+        a.click();
+        URL.revokeObjectURL(url);
+    },
+    restoreBackup: (name) => request(`/backup/restore/${name}`, { method: 'POST' }),
+    deleteBackup: (name) => request(`/backup/${name}`, { method: 'DELETE' }),
+
+    // Preferences
+    getPreferences: () => request('/preferences'),
+    savePreferences: (preferences) => request('/preferences', { method: 'PUT', body: JSON.stringify({ preferences }) }),
 };

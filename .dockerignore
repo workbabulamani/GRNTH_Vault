@@ -1,7 +1,7 @@
 node_modules
+client/node_modules
+server/node_modules
 data
-uploads
+.git
 .env
 *.md
-.git
-.gitignore

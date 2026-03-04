@@ -27,7 +27,7 @@ export default function Signup({ onSwitch }) {
             <div className="auth-card">
                 <span className="logo">📝</span>
                 <h1>Create account</h1>
-                <p className="subtitle">Get started with SutraBase</p>
+                <p className="subtitle">Get started with Sutra Knowledge Base</p>
                 {error && <div className="auth-error">{error}</div>}
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
