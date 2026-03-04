@@ -1,7 +1,7 @@
 import { useApp } from '../context/AppContext.jsx';
 
 export default function BottomBar() {
-    const { activeTab, autoSaveStatus, zoomLevel, liveEdit, readOnly } = useApp();
+    const { activeTab, autoSaveStatus, zoomLevel, liveEdit, readOnly, activeCollection } = useApp();
 
     const wordCount = activeTab?.content
         ? activeTab.content.split(/\s+/).filter(Boolean).length
@@ -21,7 +21,14 @@ export default function BottomBar() {
                     </span>
                 )}
             </div>
-            <div className="spacer" />
+
+            {/* Center: collection name */}
+            <div className="bottom-bar-center">
+                {activeCollection && (
+                    <span className="bottom-bar-collection-name">{activeCollection.name}</span>
+                )}
+            </div>
+
             {/* Right side: mode badges + stats + zoom */}
             <div className="bottom-bar-right">
                 {liveEdit && <span className="bottom-bar-badge">Live Edit</span>}

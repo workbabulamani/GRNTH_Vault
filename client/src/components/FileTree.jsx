@@ -100,12 +100,12 @@ function FileTreeNode({ node, depth = 0, expandedFolders, toggleFolder, onContex
                 ) : (
                     <span className="name" title={node.name}>{node.name}</span>
                 )}
-                {!isRenaming && (
+                {!isRenaming && !isFolder && (
                     <button
                         className={`btn-icon bookmark-icon${isBookmarked ? ' bookmarked' : ''}`}
                         onClick={(e) => {
                             e.stopPropagation();
-                            toggleBookmark(isFolder ? null : node.id, isFolder ? node.id : null);
+                            toggleBookmark(node.id, null);
                         }}
                         title={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
                     >
@@ -139,8 +139,9 @@ function FileTreeNode({ node, depth = 0, expandedFolders, toggleFolder, onContex
 }
 
 export default function FileTree({ onUploadClick, collectionControls }) {
-    const { tree, activeCollection, loadTree, canEdit, addToast, openFile, bookmarks, activeTab, tabs, activeTabId } = useApp();
+    const { tree, activeCollection, loadTree, canEdit, addToast, openFile, bookmarks, activeTab, tabs, activeTabId, closeTab } = useApp();
     const [expandedFolders, setExpandedFolders] = useState(new Set());
+    const [bookmarksExpanded, setBookmarksExpanded] = useState(false);
     const [contextMenu, setContextMenu] = useState(null);
     const [selectedFolderId, setSelectedFolderId] = useState(null);
     const [renamingId, setRenamingId] = useState(null);
@@ -173,10 +174,12 @@ export default function FileTree({ onUploadClick, collectionControls }) {
         };
         collectFolders(tree);
         setExpandedFolders(allFolders);
+        setBookmarksExpanded(true);
     }, [tree]);
 
     const collapseAll = useCallback(() => {
         setExpandedFolders(new Set());
+        setBookmarksExpanded(false);
     }, []);
 
     const handleContextMenu = useCallback((e, node) => {
@@ -249,8 +252,20 @@ export default function FileTree({ onUploadClick, collectionControls }) {
             danger: true,
             onConfirm: async () => {
                 try {
-                    if (node.type === 'folder') await api.deleteFolder(node.id);
-                    else await api.deleteFile(node.id);
+                    if (node.type === 'folder') {
+                        await api.deleteFolder(node.id);
+                        // Close tabs for files that were in this folder
+                        tabs.forEach(t => {
+                            if (findFolderContainingFile(tree, t.fileId) === node.id) {
+                                closeTab(t.id);
+                            }
+                        });
+                    } else {
+                        await api.deleteFile(node.id);
+                        // Close the tab for this file if it's open
+                        const openTab = tabs.find(t => t.fileId === node.id);
+                        if (openTab) closeTab(openTab.id);
+                    }
                     loadTree();
                     addToast(`Deleted "${node.name}"`);
                 } catch (err) {
@@ -259,7 +274,7 @@ export default function FileTree({ onUploadClick, collectionControls }) {
                 setConfirmAction(null);
             },
         });
-    }, [loadTree, addToast, closeContextMenu]);
+    }, [loadTree, addToast, closeContextMenu, tabs, closeTab, tree]);
 
     const handleNewFile = useCallback(async (parentFolder) => {
         closeContextMenu();
@@ -350,7 +365,7 @@ export default function FileTree({ onUploadClick, collectionControls }) {
             {collectionControls}
 
             <div className="sidebar-tree">
-                <BookmarksFolder bookmarks={bookmarks} openFile={openFile} />
+                <BookmarksFolder bookmarks={bookmarks} openFile={openFile} expanded={bookmarksExpanded} setExpanded={setBookmarksExpanded} />
 
                 {tree.length === 0 ? (
                     <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--font-size-sm)' }}>
@@ -424,9 +439,8 @@ export default function FileTree({ onUploadClick, collectionControls }) {
     );
 }
 
-// Bookmarks virtual folder
-function BookmarksFolder({ bookmarks, openFile }) {
-    const [expanded, setExpanded] = useState(false);
+// Bookmarks virtual folder — expanded state lifted from parent
+function BookmarksFolder({ bookmarks, openFile, expanded, setExpanded }) {
     if (!bookmarks || bookmarks.length === 0) {
         return (
             <div className="tree-node bookmarks-folder">
@@ -493,3 +507,4 @@ function findFolderById(nodes, id) {
     }
     return null;
 }
+

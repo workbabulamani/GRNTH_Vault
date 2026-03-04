@@ -9,6 +9,7 @@ export default function EditorPane({ showMenu, onCloseMenu, menuActions }) {
     const { activeTab, editMode, setEditMode, updateTabContent, canEdit, sidebarOpen, setSidebarOpen, saveActiveFile, zoomLevel, setZoomLevel, liveEdit, setLiveEdit, readOnly, setReadOnly } = useApp();
     const [focusMode, setFocusMode] = useState(false);
     const [showNoteInfo, setShowNoteInfo] = useState(false);
+    const [noteInfoWidth, setNoteInfoWidth] = useState(280);
     const sidebarWasOpenRef = useRef(true);
     const editorRef = useRef(null);
     const previewRef = useRef(null);
@@ -203,13 +204,31 @@ export default function EditorPane({ showMenu, onCloseMenu, menuActions }) {
             </div>
 
             {showNoteInfo && (
-                <NoteInfoSidebar
-                    content={activeTab.content}
-                    fileName={activeTab.name}
-                    fileData={activeTab}
-                    onClose={() => setShowNoteInfo(false)}
-                    onHeadingClick={handleHeadingClick}
-                />
+                <>
+                    <div
+                        className="right-sidebar-resize-handle"
+                        onMouseDown={(e) => {
+                            e.preventDefault();
+                            const startX = e.clientX;
+                            const startW = noteInfoWidth;
+                            const onMove = (ev) => {
+                                const delta = startX - ev.clientX;
+                                setNoteInfoWidth(Math.max(200, Math.min(600, startW + delta)));
+                            };
+                            const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+                            window.addEventListener('mousemove', onMove);
+                            window.addEventListener('mouseup', onUp);
+                        }}
+                    />
+                    <NoteInfoSidebar
+                        content={activeTab.content}
+                        fileName={activeTab.name}
+                        fileData={activeTab}
+                        onClose={() => setShowNoteInfo(false)}
+                        onHeadingClick={handleHeadingClick}
+                        width={noteInfoWidth}
+                    />
+                </>
             )}
         </div>
     );

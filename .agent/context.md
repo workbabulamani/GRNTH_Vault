@@ -108,3 +108,19 @@ cd client && npm run dev
 10. Toggle buttons (Live Edit, Read Only) show active/lit state and toggled labels
 11. Production build crash fixed (temporal dead zone: `exportAs` declared after `handleMenuAction`)
 
+## Recent Changes (March 2026 — Round 4)
+1. Bookmark stars removed from folders (files only)
+2. Upload redesigned: UploadModal with drag-drop zone, folder selector dropdown, "Complete Upload" button
+3. Expand/Collapse All now includes Bookmarks section
+4. Deleting a file closes its open tab and removes content
+5. Collection rename added to Switch Collection modal (inline edit)
+6. Download All Data requires user-supplied encryption key (POST, extensionless encrypted file)
+7. Restore from File: upload encrypted backup + key to restore data
+8. TOC filters "Table of Contents" heading; right sidebar (NoteInfoSidebar) resizable via drag handle
+9. Empty state page when no collections exist
+10. Auto Save toggle in three-dots menu (on/off, manual save when off)
+11. Collection button always shows "Switch collection" text
+12. Bottom bar shows current collection name centered, uppercase, bold
+13. Restore from backup available to all users (admin + user), not admin-only
+14. Timezone dropdown in Settings > General (stored in localStorage)
+15. Session timeout: JWT changed from 7d to 30m, client checks expiry every 60s and auto-logs out

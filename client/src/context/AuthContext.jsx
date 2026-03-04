@@ -26,6 +26,26 @@ export function AuthProvider({ children }) {
         }
     }, []);
 
+    // Session timeout: check token expiry every minute
+    useEffect(() => {
+        const checkTokenExpiry = () => {
+            const token = localStorage.getItem('md_viewer_token');
+            if (!token) return;
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                if (payload.exp * 1000 < Date.now()) {
+                    console.log('Session expired, logging out...');
+                    setUser(null);
+                    localStorage.removeItem('md_viewer_token');
+                    localStorage.removeItem('md_viewer_user');
+                    window.location.href = '/';
+                }
+            } catch (e) { /* invalid token format */ }
+        };
+        const interval = setInterval(checkTokenExpiry, 60000);
+        return () => clearInterval(interval);
+    }, []);
+
     const login = useCallback(async (email, password) => {
         const data = await api.login(email, password);
         localStorage.setItem('md_viewer_token', data.token);

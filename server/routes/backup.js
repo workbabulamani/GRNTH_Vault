@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import db from '../db.js';
 import { requireRole } from '../middleware/rbac.js';
+import multer from 'multer';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backupDir = path.resolve(__dirname, '..', '..', 'data', 'backups');
@@ -12,20 +13,29 @@ if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
 const router = Router();
 
-// Encryption helpers
-function getEncryptionKey() {
-    const secret = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key';
+// Encryption helpers — user-supplied key
+function deriveKey(secret) {
     return crypto.createHash('sha256').update(secret).digest();
 }
 
-function encrypt(data) {
-    const key = getEncryptionKey();
+function encrypt(data, secret) {
+    const key = deriveKey(secret);
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(data, 'utf8'), cipher.final()]);
     const tag = cipher.getAuthTag();
-    // Format: IV (16 bytes) + Auth Tag (16 bytes) + Encrypted data
     return Buffer.concat([iv, tag, encrypted]);
+}
+
+function decrypt(buffer, secret) {
+    const key = deriveKey(secret);
+    const iv = buffer.slice(0, 16);
+    const tag = buffer.slice(16, 32);
+    const encrypted = buffer.slice(32);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
 }
 
 // Create a backup of the current database
@@ -76,11 +86,15 @@ router.get('/list', requireRole('admin', 'user'), (req, res) => {
     }
 });
 
-// Download all user data — encrypted, extensionless
-router.get('/download', requireRole('admin', 'user'), async (req, res) => {
+// Download all user data — encrypted with user-supplied key
+router.post('/download', requireRole('admin', 'user'), async (req, res) => {
     try {
-        const userId = req.user.id;
+        const { encryptionKey } = req.body;
+        if (!encryptionKey || encryptionKey.length < 1) {
+            return res.status(400).json({ error: 'Encryption key is required' });
+        }
 
+        const userId = req.user.id;
         const collections = db.prepare(`
             SELECT c.* FROM collections c
             JOIN collection_members cm ON cm.collection_id = c.id
@@ -102,7 +116,7 @@ router.get('/download', requireRole('admin', 'user'), async (req, res) => {
         exportData.bookmarks = db.prepare('SELECT * FROM bookmarks WHERE user_id = ?').all(userId);
 
         const jsonData = JSON.stringify(exportData, null, 2);
-        const encryptedData = encrypt(jsonData);
+        const encryptedData = encrypt(jsonData, encryptionKey);
 
         const dateStr = new Date().toISOString().slice(0, 10);
         res.setHeader('Content-Type', 'application/octet-stream');
@@ -114,8 +128,8 @@ router.get('/download', requireRole('admin', 'user'), async (req, res) => {
     }
 });
 
-// Restore from a backup (auto-backup current state first)
-router.post('/restore/:name', requireRole('admin'), async (req, res) => {
+// Restore from a server-side backup (available to all users, not just admin)
+router.post('/restore/:name', requireRole('admin', 'user'), async (req, res) => {
     try {
         const backupName = req.params.name;
         const backupPath = path.join(backupDir, backupName);
@@ -124,22 +138,14 @@ router.post('/restore/:name', requireRole('admin'), async (req, res) => {
             return res.status(404).json({ error: 'Backup not found' });
         }
 
-        // Create auto-backup of current state before restore
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const autoBackupName = `auto_pre_restore_${timestamp}.db`;
         const autoBackupPath = path.join(backupDir, autoBackupName);
-
         const dbPath = process.env.DB_PATH || path.resolve(__dirname, '..', '..', 'data', 'md_viewer.db');
 
-        // Create a backup of current DB using better-sqlite3's backup method
-        try {
-            await db.backup(autoBackupPath);
-        } catch (backupErr) {
-            // Fallback to file copy
-            fs.copyFileSync(dbPath, autoBackupPath);
-        }
+        try { await db.backup(autoBackupPath); }
+        catch (backupErr) { fs.copyFileSync(dbPath, autoBackupPath); }
 
-        // Copy the selected backup over the current DB
         fs.copyFileSync(backupPath, dbPath);
 
         res.json({
@@ -148,13 +154,78 @@ router.post('/restore/:name', requireRole('admin'), async (req, res) => {
             restoredFrom: backupName,
         });
 
-        // Restart the process after sending response so the new DB is loaded
-        setTimeout(() => {
-            process.exit(0);
-        }, 500);
+        setTimeout(() => { process.exit(0); }, 500);
     } catch (err) {
         console.error('Restore error:', err);
         res.status(500).json({ error: 'Failed to restore backup' });
+    }
+});
+
+// Restore from uploaded encrypted file
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+
+router.post('/restore-file', requireRole('admin', 'user'), upload.single('backupFile'), async (req, res) => {
+    try {
+        const { encryptionKey } = req.body;
+        if (!encryptionKey) return res.status(400).json({ error: 'Encryption key is required' });
+        if (!req.file) return res.status(400).json({ error: 'Backup file is required' });
+
+        let importData;
+        try {
+            const decrypted = decrypt(req.file.buffer, encryptionKey);
+            importData = JSON.parse(decrypted);
+        } catch (decryptErr) {
+            return res.status(400).json({ error: 'Failed to decrypt. Check your encryption key.' });
+        }
+
+        // Auto-backup before restore
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const autoBackupName = `auto_pre_file_restore_${timestamp}.db`;
+        const autoBackupPath = path.join(backupDir, autoBackupName);
+        const dbPath = process.env.DB_PATH || path.resolve(__dirname, '..', '..', 'data', 'md_viewer.db');
+
+        try { await db.backup(autoBackupPath); }
+        catch (err) { fs.copyFileSync(dbPath, autoBackupPath); }
+
+        // Import data — recreate collections, folders, files
+        const userId = req.user.id;
+        const importTransaction = db.transaction(() => {
+            for (const col of (importData.collections || [])) {
+                const existing = db.prepare('SELECT id FROM collections WHERE name = ? AND owner_id = ?').get(col.name, userId);
+                let colId;
+                if (existing) {
+                    colId = existing.id;
+                } else {
+                    const result = db.prepare('INSERT INTO collections (name, description, owner_id) VALUES (?, ?, ?)').run(col.name, col.description || '', userId);
+                    colId = result.lastInsertRowid;
+                    db.prepare('INSERT OR IGNORE INTO collection_members (collection_id, user_id, role) VALUES (?, ?, ?)').run(colId, userId, 'admin');
+                }
+                for (const folder of (col.folders || [])) {
+                    const existingFolder = db.prepare('SELECT id FROM folders WHERE name = ? AND collection_id = ?').get(folder.name, colId);
+                    let folderId;
+                    if (existingFolder) {
+                        folderId = existingFolder.id;
+                    } else {
+                        const fResult = db.prepare('INSERT INTO folders (name, collection_id, parent_folder_id) VALUES (?, ?, ?)').run(folder.name, colId, folder.parent_folder_id || null);
+                        folderId = fResult.lastInsertRowid;
+                    }
+                    for (const file of (folder.files || [])) {
+                        const existingFile = db.prepare('SELECT id FROM files WHERE name = ? AND folder_id = ?').get(file.name, folderId);
+                        if (existingFile) {
+                            db.prepare('UPDATE files SET content = ? WHERE id = ?').run(file.content || '', existingFile.id);
+                        } else {
+                            db.prepare('INSERT INTO files (name, content, folder_id) VALUES (?, ?, ?)').run(file.name, file.content || '', folderId);
+                        }
+                    }
+                }
+            }
+        });
+        importTransaction();
+
+        res.json({ message: 'Data restored from file successfully', autoBackup: autoBackupName });
+    } catch (err) {
+        console.error('Restore from file error:', err);
+        res.status(500).json({ error: 'Failed to restore from file' });
     }
 });
 

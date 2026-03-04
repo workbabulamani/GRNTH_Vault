@@ -76,10 +76,12 @@ export const api = {
     // Backup
     createBackup: () => request('/backup/create', { method: 'POST' }),
     listBackups: () => request('/backup/list'),
-    downloadBackup: async () => {
+    downloadBackup: async (encryptionKey) => {
         const token = getToken();
         const res = await fetch(`${API_BASE}/backup/download`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ encryptionKey })
         });
         if (!res.ok) throw new Error('Download failed');
         const blob = await res.blob();
@@ -91,6 +93,20 @@ export const api = {
         URL.revokeObjectURL(url);
     },
     restoreBackup: (name) => request(`/backup/restore/${name}`, { method: 'POST' }),
+    restoreFromFile: async (file, encryptionKey) => {
+        const token = getToken();
+        const formData = new FormData();
+        formData.append('backupFile', file);
+        formData.append('encryptionKey', encryptionKey);
+        const res = await fetch(`${API_BASE}/backup/restore-file`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Restore failed');
+        return data;
+    },
     deleteBackup: (name) => request(`/backup/${name}`, { method: 'DELETE' }),
 
     // Preferences

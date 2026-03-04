@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { renderMarkdown } from '../utils/markdown.js';
 
-export default function NoteInfoSidebar({ content, fileName, fileData, onClose, onHeadingClick }) {
+export default function NoteInfoSidebar({ content, fileName, fileData, onClose, onHeadingClick, width }) {
     // Extract headings from markdown content
     const headings = useMemo(() => {
         if (!content) return [];
@@ -16,10 +16,13 @@ export default function NoteInfoSidebar({ content, fileName, fileData, onClose, 
             if (inCodeBlock) continue;
             const match = line.match(/^(#{1,6})\s+(.+)/);
             if (match) {
+                const text = match[2].trim();
+                // Skip self-referencing headings
+                if (text.toLowerCase() === 'table of contents') continue;
                 result.push({
                     level: match[1].length,
-                    text: match[2].trim(),
-                    id: match[2].trim().toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, ''),
+                    text,
+                    id: text.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, ''),
                 });
             }
         }
@@ -45,7 +48,7 @@ export default function NoteInfoSidebar({ content, fileName, fileData, onClose, 
     const lineCount = content ? content.split('\n').length : 0;
 
     return (
-        <div className="note-info-sidebar">
+        <div className="note-info-sidebar" style={width ? { width: `${width}px`, minWidth: `${width}px` } : undefined}>
             <div className="note-info-header">
                 <h3>Note Info</h3>
                 <button className="btn-icon" onClick={onClose} title="Close">

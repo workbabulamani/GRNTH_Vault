@@ -20,7 +20,14 @@ export function AppProvider({ children }) {
     const [zoomLevel, setZoomLevel] = useState(100);
     const [liveEdit, setLiveEdit] = useState(false);
     const [readOnly, setReadOnly] = useState(false);
+    const [autoSave, setAutoSave] = useState(true);
+    const [timezone, setTimezoneState] = useState(() => localStorage.getItem('sutra_timezone') || 'Asia/Kolkata');
     const saveTimerRef = useRef({});
+
+    const setTimezone = useCallback((tz) => {
+        setTimezoneState(tz);
+        localStorage.setItem('sutra_timezone', tz);
+    }, []);
 
     const addToast = useCallback((message, duration = 3000) => {
         const id = Date.now();
@@ -118,8 +125,9 @@ export function AppProvider({ children }) {
         setTabs(prev => prev.map(t =>
             t.id === tabId ? { ...t, content, modified: content !== t.savedContent } : t
         ));
-        // Auto-save after 1 second of inactivity
+        // Auto-save after 1 second of inactivity (only if autoSave is on)
         if (saveTimerRef.current[tabId]) clearTimeout(saveTimerRef.current[tabId]);
+        if (!autoSave) return;
         saveTimerRef.current[tabId] = setTimeout(async () => {
             const tab = tabs.find(t => t.id === tabId) || {};
             try {
@@ -134,7 +142,7 @@ export function AppProvider({ children }) {
                 showAutoSaveStatus('Save failed');
             }
         }, 1000);
-    }, [tabs, showAutoSaveStatus]);
+    }, [tabs, showAutoSaveStatus, autoSave]);
 
     const saveActiveFile = useCallback(async () => {
         const tab = tabs.find(t => t.id === activeTabId);
@@ -181,9 +189,9 @@ export function AppProvider({ children }) {
         <AppContext.Provider value={{
             collections, activeCollection, tree, tabs, activeTabId, activeTab, bookmarks,
             sidebarOpen, sidebarWidth, editMode, toasts, canEdit,
-            autoSaveStatus, zoomLevel, liveEdit, readOnly,
+            autoSaveStatus, zoomLevel, liveEdit, readOnly, autoSave, timezone,
             setSidebarOpen, setSidebarWidth, setEditMode, setActiveTabId,
-            setZoomLevel, setLiveEdit, setReadOnly,
+            setZoomLevel, setLiveEdit, setReadOnly, setAutoSave, setTimezone,
             loadCollections, loadTree, loadBookmarks,
             openFile, closeTab, updateTabContent, saveActiveFile,
             toggleBookmark, switchCollection, addToast, showAutoSaveStatus,

@@ -5,10 +5,17 @@ import { api } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import ConfirmModal from './ConfirmModal.jsx';
 
+const TIMEZONES = [
+    'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+    'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow',
+    'Asia/Dubai', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore',
+    'Australia/Sydney', 'Pacific/Auckland',
+];
+
 export default function SettingsModal({ onClose }) {
     const { user, logout } = useAuth();
     const { theme, setTheme, accentColor, setAccentColor } = useTheme();
-    const { addToast } = useApp();
+    const { addToast, timezone, setTimezone } = useApp();
     const [tab, setTab] = useState('general');
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
@@ -27,6 +34,10 @@ export default function SettingsModal({ onClose }) {
     const [loadingBackups, setLoadingBackups] = useState(false);
     const [creatingBackup, setCreatingBackup] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
+    const [downloadKey, setDownloadKey] = useState('');
+    const [restoreFile, setRestoreFile] = useState(null);
+    const [restoreFileKey, setRestoreFileKey] = useState('');
+    const [restoringFile, setRestoringFile] = useState(false);
 
     const isAdmin = user?.role === 'admin';
 
@@ -52,10 +63,9 @@ export default function SettingsModal({ onClose }) {
         e.preventDefault();
         try {
             await api.changePassword(currentPassword, newPassword);
-            addToast('Password changed');
-            setCurrentPassword('');
-            setNewPassword('');
-        } catch (err) { addToast(err.message); }
+            addToast('Password updated');
+            setCurrentPassword(''); setNewPassword('');
+        } catch (err) { addToast(err.message || 'Failed to change password'); }
     };
 
     const handleAddUser = async (e) => {
@@ -63,26 +73,25 @@ export default function SettingsModal({ onClose }) {
         try {
             await api.createUser({ email: newUserEmail, name: newUserName, password: newUserPassword, role: newUserRole });
             addToast('User created');
-            setShowAddUser(false);
-            setNewUserEmail(''); setNewUserName(''); setNewUserPassword('');
+            setShowAddUser(false); setNewUserEmail(''); setNewUserName(''); setNewUserPassword('');
             loadUsers();
-        } catch (err) { addToast(err.message); }
+        } catch (err) { addToast(err.message || 'Failed to create user'); }
     };
 
     const handleChangeRole = async (userId, role) => {
-        try { await api.updateUser(userId, { role }); loadUsers(); addToast('Role updated'); }
-        catch (err) { addToast(err.message); }
+        try { await api.updateUser(userId, { role }); loadUsers(); }
+        catch (err) { addToast('Failed to update role'); }
     };
 
     const handleDeleteUser = async (userId) => {
         setConfirmAction({
-            title: 'Delete User',
-            message: 'Are you sure you want to delete this user? This action cannot be undone.',
+            title: 'Delete this user?',
+            message: 'This will permanently remove the user and their access.',
             danger: true,
             confirmLabel: 'Delete',
             onConfirm: async () => {
-                try { await api.deleteUser(userId); loadUsers(); addToast('User deleted'); }
-                catch (err) { addToast(err.message); }
+                try { await api.deleteUser(userId); addToast('User deleted'); loadUsers(); }
+                catch (err) { addToast('Failed to delete user'); }
                 setConfirmAction(null);
             },
         });
@@ -99,8 +108,21 @@ export default function SettingsModal({ onClose }) {
     };
 
     const handleDownload = async () => {
-        try { await api.downloadBackup(); addToast('Download started'); }
+        if (!downloadKey.trim()) { addToast('Please enter an encryption key'); return; }
+        try { await api.downloadBackup(downloadKey.trim()); addToast('Download started'); }
         catch (err) { addToast('Download failed'); }
+    };
+
+    const handleRestoreFromFile = async () => {
+        if (!restoreFile || !restoreFileKey.trim()) return;
+        setRestoringFile(true);
+        try {
+            const result = await api.restoreFromFile(restoreFile, restoreFileKey.trim());
+            addToast(result.message || 'Restored successfully');
+            setRestoreFile(null); setRestoreFileKey('');
+            loadBackups();
+        } catch (err) { addToast(err.message || 'Restore failed. Check your encryption key.'); }
+        finally { setRestoringFile(false); }
     };
 
     const handleRestore = async (name) => {
@@ -113,7 +135,6 @@ export default function SettingsModal({ onClose }) {
                 try {
                     const result = await api.restoreBackup(name);
                     addToast(result.message || 'Restored successfully. Reloading...');
-                    // Server will restart; reload the page after a short delay
                     setTimeout(() => window.location.reload(), 2000);
                 } catch (err) { addToast(err.message || 'Restore failed'); }
                 setConfirmAction(null);
@@ -191,6 +212,17 @@ export default function SettingsModal({ onClose }) {
                                 </div>
                             </div>
                             <div className="settings-group">
+                                <h3>Timezone</h3>
+                                <select className="input" value={timezone} onChange={e => setTimezone(e.target.value)} style={{ width: '100%', padding: '8px 12px' }}>
+                                    {TIMEZONES.map(tz => (
+                                        <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+                                    ))}
+                                </select>
+                                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+                                    Dates throughout the app will use this timezone.
+                                </p>
+                            </div>
+                            <div className="settings-group">
                                 <h3>About</h3>
                                 <div className="settings-row"><span className="label">Version</span><span>1.0.0</span></div>
                             </div>
@@ -221,31 +253,75 @@ export default function SettingsModal({ onClose }) {
 
                     {tab === 'backup' && (
                         <div className="settings-panel">
+                            {/* Export with encryption key */}
                             <div className="settings-group">
                                 <h3>Export Data</h3>
-                                <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+                                <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
                                     Download all your data as an encrypted backup file.
                                 </p>
-                                <button className="btn btn-primary" onClick={handleDownload}>
+                                <div className="form-group" style={{ marginBottom: 8 }}>
+                                    <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>Secret Encryption Key</label>
+                                    <input
+                                        className="input"
+                                        type="password"
+                                        placeholder="Enter a secret key..."
+                                        value={downloadKey}
+                                        onChange={e => setDownloadKey(e.target.value)}
+                                    />
+                                    <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)', margin: '4px 0 0' }}>
+                                        ⚠ Remember this key — it is required to restore your data.
+                                    </p>
+                                </div>
+                                <button className="btn btn-primary" onClick={handleDownload} disabled={!downloadKey.trim()}>
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
                                     Download All Data
                                 </button>
                             </div>
 
+                            {/* Restore from downloaded file */}
+                            <div className="settings-group">
+                                <h3>Restore from File</h3>
+                                <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
+                                    Upload a previously downloaded encrypted backup file.
+                                </p>
+                                <div className="form-group" style={{ marginBottom: 8 }}>
+                                    <input
+                                        type="file"
+                                        onChange={e => setRestoreFile(e.target.files[0])}
+                                        style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-primary)' }}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 8 }}>
+                                    <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>Encryption Key</label>
+                                    <input
+                                        className="input"
+                                        type="password"
+                                        placeholder="Enter the key used during export..."
+                                        value={restoreFileKey}
+                                        onChange={e => setRestoreFileKey(e.target.value)}
+                                    />
+                                </div>
+                                <button className="btn btn-primary" onClick={handleRestoreFromFile} disabled={!restoreFile || !restoreFileKey.trim() || restoringFile}>
+                                    {restoringFile ? 'Restoring...' : 'Restore from File'}
+                                </button>
+                            </div>
+
+                            {/* Database Backup */}
                             <div className="settings-group">
                                 <h3>Database Backup</h3>
-                                <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
-                                    Create a snapshot of the current database. Useful before making major changes.
+                                <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
+                                    Create a snapshot of the current database.
                                 </p>
                                 <button className="btn btn-primary" onClick={handleCreateBackup} disabled={creatingBackup}>
                                     {creatingBackup ? 'Creating...' : 'Create Backup'}
                                 </button>
                             </div>
 
+                            {/* Restore from backups — available to all */}
                             <div className="settings-group">
-                                <h3>Restore</h3>
+                                <h3>Restore from Backup</h3>
                                 {loadingBackups ? (
-                                    <div style={{ textAlign: 'center', padding: 20 }}><span className="spinner" /></div>
+                                    <div style={{ textAlign: 'center', padding: 12 }}><span className="spinner" /></div>
                                 ) : backups.length === 0 ? (
                                     <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-tertiary)' }}>No backups available.</p>
                                 ) : (
@@ -259,14 +335,14 @@ export default function SettingsModal({ onClose }) {
                                                     </span>
                                                 </div>
                                                 <div className="backup-actions">
+                                                    <button className="btn btn-ghost" onClick={() => handleRestore(b.name)} style={{ fontSize: 'var(--font-size-xs)', padding: '2px 8px' }}>
+                                                        Restore
+                                                    </button>
                                                     {isAdmin && (
-                                                        <button className="btn btn-ghost" onClick={() => handleRestore(b.name)} style={{ fontSize: 'var(--font-size-xs)', padding: '2px 8px' }}>
-                                                            Restore
+                                                        <button className="btn-icon" onClick={() => handleDeleteBackup(b.name)} title="Delete backup">
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
                                                         </button>
                                                     )}
-                                                    <button className="btn-icon" onClick={() => handleDeleteBackup(b.name)} title="Delete backup">
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
-                                                    </button>
                                                 </div>
                                             </div>
                                         ))}

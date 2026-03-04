@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import Sidebar from './Sidebar.jsx';
 import TabBar from './TabBar.jsx';
 import EditorPane from './EditorPane.jsx';
@@ -21,7 +21,7 @@ const SutraBaseLogoSmall = () => (
 );
 
 export default function Layout() {
-    const { toasts, sidebarOpen, setSidebarOpen, sidebarWidth, setSidebarWidth, activeTab, canEdit, addToast } = useApp();
+    const { toasts, sidebarOpen, setSidebarOpen, sidebarWidth, setSidebarWidth, activeTab, canEdit, addToast, collections } = useApp();
     const [showSettings, setShowSettings] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
     const [menuAction, setMenuAction] = useState(null);
@@ -154,9 +154,21 @@ table{width:100%;border-collapse:collapse}th,td{padding:8px 12px;border:1px soli
             )}
 
             <div className="main-content">
-                <TabBar onMenuAction={handleMenuAction} />
-                <EditorPane menuActions={menuAction} />
-                <BottomBar />
+                {collections.length === 0 ? (
+                    <div className="empty-state-page">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" strokeWidth="1" style={{ opacity: 0.5 }}>
+                            <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
+                        </svg>
+                        <h2>Welcome to SutraBase</h2>
+                        <p>No collections found. Create your first collection from the sidebar to get started.</p>
+                    </div>
+                ) : (
+                    <>
+                        <TabBar onMenuAction={handleMenuAction} />
+                        <EditorPane menuActions={menuAction} />
+                        <BottomBar />
+                    </>
+                )}
             </div>
 
             {showMenu && (
@@ -180,15 +192,14 @@ table{width:100%;border-collapse:collapse}th,td{padding:8px 12px;border:1px soli
 // Three dots dropdown menu component
 function ThreeDotsMenu({ onAction, activeTab, canEdit }) {
     const [showExport, setShowExport] = useState(false);
-    const { liveEdit, readOnly, focusMode } = useApp();
+    const { liveEdit, readOnly, focusMode, autoSave, setAutoSave } = useApp();
 
     return (
         <div className="three-dots-menu">
             {canEdit && (
-                <button className="menu-item" onClick={() => onAction('save')}>
+                <button className={`menu-item${autoSave ? ' menu-item-active' : ''}`} onClick={() => setAutoSave(!autoSave)}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
-                    <span>Save</span>
-                    <span className="menu-shortcut">⌘S</span>
+                    <span>{autoSave ? 'Auto Save: On' : 'Auto Save: Off'}</span>
                 </button>
             )}
             <div className="menu-separator" />
@@ -253,6 +264,188 @@ function ThreeDotsMenu({ onAction, activeTab, canEdit }) {
     );
 }
 
+// Collection switcher modal with rename capability
+function CollectionModal({ collections, activeCollection, switchCollection, loadCollections, addToast, canEdit, onClose }) {
+    const [renamingId, setRenamingId] = useState(null);
+    const [renameValue, setRenameValue] = useState('');
+
+    const handleRename = async (colId) => {
+        const trimmed = renameValue.trim();
+        if (!trimmed) { setRenamingId(null); return; }
+        try {
+            const { api } = await import('../api/client.js');
+            await api.updateCollection(colId, { name: trimmed });
+            addToast('Collection renamed');
+            loadCollections();
+        } catch (err) { addToast('Failed to rename collection'); }
+        setRenamingId(null);
+    };
+
+    return (
+        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 2500 }}>
+            <div className="modal collection-modal" onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <h2 style={{ margin: 0, fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Switch Collection</h2>
+                    <button className="btn-icon" onClick={onClose}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                    </button>
+                </div>
+                <div className="collection-modal-list">
+                    {collections.map(col => (
+                        <div
+                            key={col.id}
+                            className={`collection-modal-item${col.id === activeCollection?.id ? ' active' : ''}`}
+                        >
+                            <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => { switchCollection(col); onClose(); }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>
+                                    {renamingId === col.id ? (
+                                        <input
+                                            className="input"
+                                            value={renameValue}
+                                            onChange={e => setRenameValue(e.target.value)}
+                                            onKeyDown={e => { if (e.key === 'Enter') handleRename(col.id); if (e.key === 'Escape') setRenamingId(null); }}
+                                            onBlur={() => handleRename(col.id)}
+                                            onClick={e => e.stopPropagation()}
+                                            autoFocus
+                                            style={{ padding: '2px 6px', fontSize: 'var(--font-size-sm)' }}
+                                        />
+                                    ) : (
+                                        <div style={{ fontWeight: 500, fontSize: 'var(--font-size-sm)' }}>{col.name}</div>
+                                    )}
+                                </div>
+                                {col.description && <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)', marginTop: 2, paddingLeft: 24 }}>{col.description}</div>}
+                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)', marginTop: 2, paddingLeft: 24 }}>{col.file_count || 0} files · {col.folder_count || 0} folders</div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                {canEdit && renamingId !== col.id && (
+                                    <button className="btn-icon" title="Rename" onClick={(e) => { e.stopPropagation(); setRenamingId(col.id); setRenameValue(col.name); }} style={{ opacity: 0.5 }}>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                                    </button>
+                                )}
+                                {col.id === activeCollection?.id && (
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Upload modal with drag-drop and folder selector (#2)
+function UploadModal({ tree, onClose, onUpload }) {
+    const [files, setFiles] = useState([]);
+    const [targetFolderId, setTargetFolderId] = useState('');
+    const [dragging, setDragging] = useState(false);
+
+    // Flatten folder tree for dropdown
+    const flatFolders = useMemo(() => {
+        const result = [];
+        const walk = (nodes, depth = 0) => {
+            nodes.forEach(n => {
+                if (n.type === 'folder') {
+                    result.push({ id: n.id, name: n.name, depth });
+                    if (n.children) walk(n.children, depth + 1);
+                }
+            });
+        };
+        walk(tree);
+        return result;
+    }, [tree]);
+
+    const isValidFile = (f) => f.name.endsWith('.md') || f.name.endsWith('.txt');
+
+    const addFiles = (newFiles) => {
+        const arr = Array.from(newFiles).map(f => ({ file: f, valid: isValidFile(f) }));
+        setFiles(prev => [...prev, ...arr]);
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        setDragging(false);
+        if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+    };
+
+    const removeFile = (idx) => setFiles(prev => prev.filter((_, i) => i !== idx));
+
+    const allValid = files.length > 0 && files.every(f => f.valid);
+    const canComplete = allValid && targetFolderId;
+
+    return (
+        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 2500 }}>
+            <div className="modal upload-modal" onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <h2 style={{ margin: 0 }}>Upload Files</h2>
+                    <button className="btn-icon" onClick={onClose}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                    </button>
+                </div>
+
+                {/* Drop zone */}
+                <div
+                    className={`upload-drop-zone${dragging ? ' dragging' : ''}`}
+                    onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                    onDragLeave={() => setDragging(false)}
+                    onDrop={handleDrop}
+                    onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.md,.txt'; inp.multiple = true; inp.onchange = (e) => addFiles(e.target.files); inp.click(); }}
+                >
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" strokeWidth="1.5" style={{ opacity: 0.6 }}>
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <p style={{ margin: '8px 0 0', color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' }}>
+                        Drag & drop <strong>.md</strong> or <strong>.txt</strong> files here, or click to browse
+                    </p>
+                </div>
+
+                {/* File list */}
+                {files.length > 0 && (
+                    <div className="upload-file-list">
+                        {files.map((f, i) => (
+                            <div key={i} className={`upload-file-item${f.valid ? '' : ' invalid'}`}>
+                                <span className="upload-file-icon">{f.valid ? '✓' : '✗'}</span>
+                                <span className="upload-file-name">{f.file.name}</span>
+                                <span className="upload-file-size">{(f.file.size / 1024).toFixed(1)} KB</span>
+                                <button className="btn-icon" onClick={() => removeFile(i)} style={{ marginLeft: 'auto' }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Folder selector */}
+                <div style={{ marginTop: 16 }}>
+                    <label style={{ display: 'block', fontSize: 'var(--font-size-sm)', fontWeight: 500, marginBottom: 6, color: 'var(--text-secondary)' }}>Upload to folder</label>
+                    <select
+                        className="input"
+                        value={targetFolderId}
+                        onChange={e => setTargetFolderId(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px' }}
+                    >
+                        <option value="">Select a folder...</option>
+                        {flatFolders.map(f => (
+                            <option key={f.id} value={f.id}>{'  '.repeat(f.depth) + f.name}</option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20, gap: 8 }}>
+                    <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+                    <button className="btn btn-primary" disabled={!canComplete} onClick={() => onUpload(files.filter(f => f.valid).map(f => f.file), targetFolderId)}>
+                        Complete Upload
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function SidebarWrapper({ onOpenSettings, width }) {
     const { activeCollection, collections, switchCollection, loadCollections, loadTree, addToast, canEdit, tree, activeTab } = useApp();
     const { logout } = useAuth();
@@ -260,7 +453,7 @@ function SidebarWrapper({ onOpenSettings, width }) {
     const [newColName, setNewColName] = useState('');
     const [newColDesc, setNewColDesc] = useState('');
     const [showCollectionModal, setShowCollectionModal] = useState(false);
-    const fileInputRef = useRef(null);
+    const [showUploadModal, setShowUploadModal] = useState(false);
 
     const handleCreateCollection = async (e) => {
         e.preventDefault();
@@ -279,35 +472,19 @@ function SidebarWrapper({ onOpenSettings, width }) {
         }
     };
 
-    const handleFileUpload = async (e) => {
-        const files = e.target.files;
-        if (!files || files.length === 0) return;
-
-        // Use active tab's folder, fall back to first folder in tree
-        let targetFolderId = activeTab?.folder_id;
-        if (!targetFolderId) {
-            const findFirstFolder = (nodes) => {
-                for (const n of nodes) {
-                    if (n.type === 'folder') return n.id;
-                    if (n.children) { const found = findFirstFolder(n.children); if (found) return found; }
-                }
-                return null;
-            };
-            targetFolderId = findFirstFolder(tree);
-        }
-        if (!targetFolderId) { addToast('Create a folder first'); return; }
+    const handleUploadComplete = async (files, folderId) => {
         const { api } = await import('../api/client.js');
         let uploaded = 0;
         for (const file of files) {
             try {
                 const text = await file.text();
                 const name = file.name.endsWith('.md') || file.name.endsWith('.txt') ? file.name : `${file.name}.md`;
-                const result = await api.createFile(name, targetFolderId);
+                const result = await api.createFile(name, parseInt(folderId));
                 if (result.file?.id) { await api.updateFile(result.file.id, { content: text }); uploaded++; }
             } catch (err) { addToast(`Failed to upload ${file.name}`); }
         }
         if (uploaded > 0) { addToast(`Uploaded ${uploaded} file(s)`); await loadTree(); }
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        setShowUploadModal(false);
     };
 
     const collectionControls = (
@@ -328,15 +505,14 @@ function SidebarWrapper({ onOpenSettings, width }) {
                     </div>
                 </form>
             )}
-            {/* Collection switcher button — hover shows "Switch collection" */}
+            {/* Collection switcher button */}
             <button
-                className="sidebar-nav-item sidebar-nav-collection collection-hover-switch"
+                className="sidebar-nav-item sidebar-nav-collection"
                 onClick={() => setShowCollectionModal(true)}
                 title="Switch Collection"
             >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>
-                <span className="collection-default-text">{activeCollection?.name || 'No collection'}</span>
-                <span className="collection-hover-text">Switch collection</span>
+                <span>Switch collection</span>
             </button>
         </div>
     );
@@ -344,7 +520,7 @@ function SidebarWrapper({ onOpenSettings, width }) {
     return (
         <>
             <div className="sidebar" style={{ width: `${width}px` }}>
-                <Sidebar collectionControls={collectionControls} onUploadClick={() => fileInputRef.current?.click()} />
+                <Sidebar collectionControls={collectionControls} onUploadClick={() => setShowUploadModal(true)} />
                 <div className="sidebar-bottom-nav">
                     <button className="sidebar-nav-item" onClick={onOpenSettings} title="Settings">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" /></svg>
@@ -355,42 +531,26 @@ function SidebarWrapper({ onOpenSettings, width }) {
                         <span>Logout</span>
                     </button>
                 </div>
-                <input ref={fileInputRef} type="file" accept=".md,.txt" multiple style={{ display: 'none' }} onChange={handleFileUpload} />
             </div>
 
-            {/* Collection Switcher Modal */}
+            {showUploadModal && (
+                <UploadModal
+                    tree={tree}
+                    onClose={() => setShowUploadModal(false)}
+                    onUpload={handleUploadComplete}
+                />
+            )}
+
             {showCollectionModal && (
-                <div className="modal-overlay" onClick={() => setShowCollectionModal(false)} style={{ zIndex: 2500 }}>
-                    <div className="modal collection-modal" onClick={e => e.stopPropagation()}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                            <h2 style={{ margin: 0, fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Switch Collection</h2>
-                            <button className="btn-icon" onClick={() => setShowCollectionModal(false)}>
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="collection-modal-list">
-                            {collections.map(col => (
-                                <div
-                                    key={col.id}
-                                    className={`collection-modal-item${col.id === activeCollection?.id ? ' active' : ''}`}
-                                    onClick={() => { switchCollection(col); setShowCollectionModal(false); }}
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontWeight: 500, fontSize: 'var(--font-size-sm)' }}>{col.name}</div>
-                                        {col.description && <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>{col.description}</div>}
-                                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>{col.file_count || 0} files · {col.folder_count || 0} folders</div>
-                                    </div>
-                                    {col.id === activeCollection?.id && (
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
+                <CollectionModal
+                    collections={collections}
+                    activeCollection={activeCollection}
+                    switchCollection={switchCollection}
+                    loadCollections={loadCollections}
+                    addToast={addToast}
+                    canEdit={canEdit}
+                    onClose={() => setShowCollectionModal(false)}
+                />
             )}
         </>
     );
