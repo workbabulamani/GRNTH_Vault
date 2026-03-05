@@ -41,11 +41,21 @@ function makeAutoPairKeymap() {
                     const line = state.doc.lineAt(from);
                     const lineText = state.doc.sliceString(line.from, from);
                     if (lineText === '``' && nextChar !== '`') {
-                        const insert = `\`\n\n\`\`\``;
-                        view.dispatch({
-                            changes: { from, to, insert },
-                            selection: { anchor: from + 2 },
-                        });
+                        // If text is selected, wrap it in a fenced code block
+                        if (selectedText) {
+                            // Replace the two backticks already typed + selected text with a full fenced block
+                            const insert = `\`\n${selectedText}\n\`\`\``;
+                            view.dispatch({
+                                changes: { from: line.from, to, insert: '```\n' + selectedText + '\n```' },
+                                selection: { anchor: line.from + 4, head: line.from + 4 + selectedText.length },
+                            });
+                        } else {
+                            const insert = `\`\n\n\`\`\``;
+                            view.dispatch({
+                                changes: { from, to, insert },
+                                selection: { anchor: from + 2 },
+                            });
+                        }
                         return true;
                     }
                     if (SYMMETRIC.has(open) && nextChar === close && !selectedText) {

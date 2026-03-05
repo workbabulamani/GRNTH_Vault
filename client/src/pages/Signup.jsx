@@ -25,7 +25,7 @@ export default function Signup({ onSwitch }) {
     return (
         <div className="auth-container">
             <div className="auth-card">
-                <span className="logo">📝</span>
+                <div className="auth-logo"><img src="/logo2.svg" alt="Sutra Knowledge Base" style={{ height: 64, width: 'auto' }} /></div>
                 <h1>Create account</h1>
                 <p className="subtitle">Get started with Sutra Knowledge Base</p>
                 {error && <div className="auth-error">{error}</div>}

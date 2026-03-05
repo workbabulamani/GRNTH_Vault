@@ -40,6 +40,15 @@ router.post('/', requireRole('admin', 'user'), (req, res) => {
     try {
         const { name, description } = req.body;
         if (!name) return res.status(400).json({ error: 'Name is required' });
+        // Check for duplicate collection name for this user
+        const existing = db.prepare(
+            `SELECT c.id FROM collections c
+             JOIN collection_members cm ON cm.collection_id = c.id
+             WHERE LOWER(c.name) = LOWER(?) AND cm.user_id = ?`
+        ).get(name, req.user.id);
+        if (existing) {
+            return res.status(409).json({ error: `A collection named "${name}" already exists` });
+        }
         const result = db.prepare('INSERT INTO collections (name, description, owner_id) VALUES (?, ?, ?)').run(
             name, description || '', req.user.id
         );

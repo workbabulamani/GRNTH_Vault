@@ -15,4 +15,5 @@ services:
       - UPLOAD_DIR=/app/uploads/images
       - ADMIN_EMAIL=admin@admin.com
       - ADMIN_PASSWORD=admin123
+      - SESSION_TIMEOUT=30
     restart: unless-stopped

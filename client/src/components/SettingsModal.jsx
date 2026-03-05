@@ -15,7 +15,7 @@ const TIMEZONES = [
 export default function SettingsModal({ onClose }) {
     const { user, logout } = useAuth();
     const { theme, setTheme, accentColor, setAccentColor } = useTheme();
-    const { addToast, timezone, setTimezone } = useApp();
+    const { addToast, timezone, setTimezone, loadTree, loadCollections } = useApp();
     const [tab, setTab] = useState('general');
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
@@ -121,6 +121,7 @@ export default function SettingsModal({ onClose }) {
             addToast(result.message || 'Restored successfully');
             setRestoreFile(null); setRestoreFileKey('');
             loadBackups();
+            await loadCollections(); await loadTree();
         } catch (err) { addToast(err.message || 'Restore failed. Check your encryption key.'); }
         finally { setRestoringFile(false); }
     };
@@ -134,8 +135,8 @@ export default function SettingsModal({ onClose }) {
             onConfirm: async () => {
                 try {
                     const result = await api.restoreBackup(name);
-                    addToast(result.message || 'Restored successfully. Reloading...');
-                    setTimeout(() => window.location.reload(), 2000);
+                    addToast(result.message || 'Restored successfully');
+                    await loadCollections(); await loadTree();
                 } catch (err) { addToast(err.message || 'Restore failed'); }
                 setConfirmAction(null);
             },
@@ -245,6 +246,7 @@ export default function SettingsModal({ onClose }) {
                                     <button className="btn btn-primary" type="submit">Update Password</button>
                                 </form>
                             </div>
+                            <TwoFactorSection user={user} addToast={addToast} />
                             <div className="settings-group" style={{ marginTop: 24 }}>
                                 <button className="btn btn-danger" onClick={logout}>Sign Out</button>
                             </div>
@@ -416,6 +418,135 @@ export default function SettingsModal({ onClose }) {
                     onConfirm={confirmAction.onConfirm}
                     onCancel={() => setConfirmAction(null)}
                 />
+            )}
+        </div>
+    );
+}
+
+// Two-Factor Authentication section for Account tab
+function TwoFactorSection({ user, addToast }) {
+    const [setting, setSetting] = useState(false);
+    const [qrCode, setQrCode] = useState(null);
+    const [secret, setSecret] = useState('');
+    const [verifyCode, setVerifyCode] = useState('');
+    const [disablePassword, setDisablePassword] = useState('');
+    const [showDisable, setShowDisable] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [is2FAEnabled, setIs2FAEnabled] = useState(!!user?.totp_enabled);
+
+    const handleSetup = async () => {
+        setLoading(true);
+        try {
+            const data = await api.totpSetup();
+            setQrCode(data.qrCodeUrl);
+            setSecret(data.secret);
+            setSetting(true);
+        } catch (err) { addToast(err.message || 'Failed to setup 2FA'); }
+        finally { setLoading(false); }
+    };
+
+    const handleVerifySetup = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            await api.totpVerifySetup(verifyCode);
+            addToast('Two-Factor Authentication enabled!');
+            setIs2FAEnabled(true);
+            setSetting(false);
+            setQrCode(null);
+            setSecret('');
+            setVerifyCode('');
+        } catch (err) { addToast(err.message || 'Verification failed'); }
+        finally { setLoading(false); }
+    };
+
+    const handleDisable = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            await api.totpDisable(disablePassword);
+            addToast('Two-Factor Authentication disabled');
+            setIs2FAEnabled(false);
+            setShowDisable(false);
+            setDisablePassword('');
+        } catch (err) { addToast(err.message || 'Failed to disable 2FA'); }
+        finally { setLoading(false); }
+    };
+
+    return (
+        <div className="settings-group">
+            <h3>Two-Factor Authentication</h3>
+            {is2FAEnabled ? (
+                <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+                        <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-primary)', fontWeight: 500 }}>2FA is enabled</span>
+                    </div>
+                    {!showDisable ? (
+                        <button className="btn btn-ghost" onClick={() => setShowDisable(true)} style={{ color: '#ff3b30', fontSize: 'var(--font-size-sm)' }}>Disable 2FA</button>
+                    ) : (
+                        <form onSubmit={handleDisable} style={{ padding: 12, background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 8px' }}>Enter your password to disable 2FA:</p>
+                            <div className="form-group" style={{ marginBottom: 8 }}>
+                                <input className="input" type="password" value={disablePassword} onChange={e => setDisablePassword(e.target.value)} placeholder="Enter password" required />
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <button className="btn btn-danger" type="submit" disabled={loading} style={{ fontSize: 'var(--font-size-xs)' }}>
+                                    {loading ? 'Disabling...' : 'Confirm Disable'}
+                                </button>
+                                <button type="button" className="btn btn-ghost" onClick={() => { setShowDisable(false); setDisablePassword(''); }} style={{ fontSize: 'var(--font-size-xs)' }}>Cancel</button>
+                            </div>
+                        </form>
+                    )}
+                </>
+            ) : setting ? (
+                <div>
+                    <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 12 }}>
+                        Scan this QR code with your authenticator app (Google Authenticator, Microsoft Authenticator, Bitwarden, etc.)
+                    </p>
+                    {qrCode && (
+                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, padding: 12, background: '#fff', borderRadius: 'var(--radius-md)', width: 'fit-content', margin: '0 auto 12px' }}>
+                            <img src={qrCode} alt="2FA QR Code" style={{ width: 200, height: 200 }} />
+                        </div>
+                    )}
+                    <details style={{ marginBottom: 12, fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)' }}>
+                        <summary style={{ cursor: 'pointer', marginBottom: 4 }}>Can't scan? Enter this key manually</summary>
+                        <code style={{ wordBreak: 'break-all', background: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-xs)' }}>{secret}</code>
+                    </details>
+                    <form onSubmit={handleVerifySetup}>
+                        <div className="form-group" style={{ marginBottom: 8 }}>
+                            <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>Enter verification code</label>
+                            <input
+                                className="input"
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={6}
+                                value={verifyCode}
+                                onChange={e => setVerifyCode(e.target.value.replace(/\D/g, ''))}
+                                placeholder="000000"
+                                autoFocus
+                                required
+                                style={{ textAlign: 'center', fontSize: '20px', letterSpacing: '6px', fontWeight: 600 }}
+                            />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="btn btn-primary" type="submit" disabled={loading || verifyCode.length !== 6} style={{ fontSize: 'var(--font-size-sm)' }}>
+                                {loading ? 'Verifying...' : 'Enable 2FA'}
+                            </button>
+                            <button type="button" className="btn btn-ghost" onClick={() => { setSetting(false); setQrCode(null); setSecret(''); setVerifyCode(''); }} style={{ fontSize: 'var(--font-size-sm)' }}>Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            ) : (
+                <>
+                    <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+                        Add an extra layer of security to your account using an authenticator app.
+                    </p>
+                    <button className="btn btn-primary" onClick={handleSetup} disabled={loading} style={{ fontSize: 'var(--font-size-sm)' }}>
+                        {loading ? 'Setting up...' : 'Enable Two-Factor Authentication'}
+                    </button>
+                </>
             )}
         </div>
     );

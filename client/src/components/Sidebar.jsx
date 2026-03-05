@@ -4,14 +4,7 @@ import { api } from '../api/client.js';
 import FileTree from './FileTree.jsx';
 
 const SutraBaseLogo = () => (
-    <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-        <rect x="2" y="2" width="28" height="28" rx="7" fill="var(--accent-color)" opacity="0.15" />
-        <path d="M10 9h8a2 2 0 012 2v10a2 2 0 01-2 2h-8a2 2 0 01-2-2V11a2 2 0 012-2z" stroke="var(--accent-color)" strokeWidth="1.5" fill="none" />
-        <line x1="11" y1="16" x2="17" y2="16" stroke="var(--accent-color)" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="11" y1="19" x2="15" y2="19" stroke="var(--accent-color)" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
-        <circle cx="22" cy="22" r="5" fill="var(--accent-color)" />
-        <path d="M20.5 22L21.5 23L23.5 21" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <img src="/logo.svg" width="28" height="28" alt="SutraBase" style={{ borderRadius: 6 }} />
 );
 
 export default function Sidebar({ collectionControls, onUploadClick }) {

@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Login({ onSwitch }) {
-    const { login } = useAuth();
+    const { login, pending2FA, verify2FA, cancel2FA } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [totpCode, setTotpCode] = useState('');
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -21,10 +22,61 @@ export default function Login({ onSwitch }) {
         }
     };
 
+    const handle2FASubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+            await verify2FA(totpCode);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Show 2FA code entry
+    if (pending2FA) {
+        return (
+            <div className="auth-page">
+                <div className="auth-card">
+                    <div className="auth-logo"><img src="/logo2.svg" alt="Sutra Knowledge Base" style={{ height: 64, width: 'auto' }} /></div>
+                    <h1>Two-Factor Auth</h1>
+                    <p className="auth-subtitle">Enter the 6-digit code from your authenticator app</p>
+                    {error && <div className="auth-error">{error}</div>}
+                    <form onSubmit={handle2FASubmit}>
+                        <div className="form-group">
+                            <label>Verification Code</label>
+                            <input
+                                className="input"
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={6}
+                                value={totpCode}
+                                onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                                placeholder="000000"
+                                autoFocus
+                                required
+                                style={{ textAlign: 'center', fontSize: '24px', letterSpacing: '8px', fontWeight: 600 }}
+                            />
+                        </div>
+                        <button className="btn btn-primary" type="submit" disabled={loading || totpCode.length !== 6} style={{ width: '100%' }}>
+                            {loading ? <span className="spinner" /> : 'Verify'}
+                        </button>
+                    </form>
+                    <div className="auth-footer">
+                        <a href="#" onClick={(e) => { e.preventDefault(); cancel2FA(); setTotpCode(''); setError(''); }}>← Back to login</a>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="auth-page">
             <div className="auth-card">
-                <div className="auth-logo">📝</div>
+                <div className="auth-logo"><img src="/logo2.svg" alt="Sutra Knowledge Base" style={{ height: 64, width: 'auto' }} /></div>
                 <h1>Welcome back</h1>
                 <p className="auth-subtitle">Sign in to Sutra Knowledge Base</p>
                 {error && <div className="auth-error">{error}</div>}

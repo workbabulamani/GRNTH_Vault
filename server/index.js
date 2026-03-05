@@ -14,6 +14,7 @@ import uploadRoutes from './routes/upload.js';
 import adminRoutes from './routes/admin.js';
 import backupRoutes from './routes/backup.js';
 import preferencesRoutes from './routes/preferences.js';
+import totpRoutes from './routes/totp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -36,6 +37,9 @@ const optionalAuth = (req, res, next) => {
     if (req.method === 'POST' && (req.path === '/login' || req.path === '/signup')) {
         return next();
     }
+    if (req.method === 'GET' && req.path === '/session-info') {
+        return next();
+    }
     return authenticate(req, res, next);
 };
 
@@ -50,6 +54,14 @@ app.use('/api/upload', authenticate, uploadRoutes);
 app.use('/api/admin', authenticate, adminRoutes);
 app.use('/api/backup', authenticate, backupRoutes);
 app.use('/api/preferences', authenticate, preferencesRoutes);
+// TOTP routes: verify-login is public (uses temp token), others require auth
+const totpOptionalAuth = (req, res, next) => {
+    if (req.method === 'POST' && req.path === '/verify-login') {
+        return next();
+    }
+    return authenticate(req, res, next);
+};
+app.use('/api/totp', totpOptionalAuth, totpRoutes);
 
 // Serve client build in production
 const clientDist = path.join(__dirname, 'public');

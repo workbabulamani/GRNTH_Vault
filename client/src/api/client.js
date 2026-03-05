@@ -29,6 +29,7 @@ export const api = {
     signup: (email, name, password) => request('/auth/signup', { method: 'POST', body: JSON.stringify({ email, name, password }) }),
     me: () => request('/auth/me'),
     changePassword: (currentPassword, newPassword) => request('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
+    getSessionInfo: () => request('/auth/session-info'),
 
     // Collections
     getCollections: () => request('/collections'),
@@ -108,6 +109,12 @@ export const api = {
         return data;
     },
     deleteBackup: (name) => request(`/backup/${name}`, { method: 'DELETE' }),
+
+    // TOTP 2FA
+    totpSetup: () => request('/totp/setup', { method: 'POST' }),
+    totpVerifySetup: (token) => request('/totp/verify-setup', { method: 'POST', body: JSON.stringify({ token }) }),
+    totpDisable: (password) => request('/totp/disable', { method: 'POST', body: JSON.stringify({ password }) }),
+    totpVerifyLogin: (tempToken, token) => request('/totp/verify-login', { method: 'POST', body: JSON.stringify({ tempToken, token }) }),
 
     // Preferences
     getPreferences: () => request('/preferences'),

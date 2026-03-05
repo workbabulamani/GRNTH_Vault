@@ -1,9 +1,17 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import db from '../db.js';
-import { generateToken } from '../middleware/auth.js';
+import { generateToken, getSessionTimeout } from '../middleware/auth.js';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
 
 const router = Router();
+
+// Public endpoint: returns session timeout config
+router.get('/session-info', (req, res) => {
+    res.json({ sessionTimeout: getSessionTimeout() });
+});
 
 router.post('/signup', (req, res) => {
     try {
@@ -48,6 +56,17 @@ router.post('/login', (req, res) => {
         if (!user || !bcrypt.compareSync(password, user.password_hash)) {
             return res.status(401).json({ error: 'Invalid email or password' });
         }
+
+        // If 2FA is enabled, return a temp token instead of a real one
+        if (user.totp_enabled) {
+            const tempToken = jwt.sign(
+                { id: user.id, email: user.email, pending2FA: true },
+                JWT_SECRET,
+                { expiresIn: '2m' }
+            );
+            return res.json({ requires2FA: true, tempToken });
+        }
+
         const token = generateToken({ id: user.id, email: user.email, role: user.role, name: user.name });
         res.json({
             token,
@@ -62,9 +81,9 @@ router.post('/login', (req, res) => {
 router.get('/me', (req, res) => {
     // This route is protected by auth middleware at the app level
     try {
-        const user = db.prepare('SELECT id, email, name, role, created_at FROM users WHERE id = ?').get(req.user.id);
+        const user = db.prepare('SELECT id, email, name, role, created_at, totp_enabled FROM users WHERE id = ?').get(req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
-        res.json({ user });
+        res.json({ user: { ...user, totp_enabled: !!user.totp_enabled } });
     } catch (err) {
         res.status(500).json({ error: 'Internal server error' });
     }

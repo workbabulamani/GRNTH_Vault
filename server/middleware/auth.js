@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
+const SESSION_TIMEOUT = parseInt(process.env.SESSION_TIMEOUT || '30', 10); // minutes
 
 export function authenticate(req, res, next) {
     const authHeader = req.headers.authorization;
@@ -17,10 +18,14 @@ export function authenticate(req, res, next) {
     }
 }
 
-export function generateToken(user) {
+export function generateToken(user, expiresInMinutes = SESSION_TIMEOUT) {
     return jwt.sign(
         { id: user.id, email: user.email, role: user.role, name: user.name },
         JWT_SECRET,
-        { expiresIn: '30m' }
+        { expiresIn: `${expiresInMinutes}m` }
     );
+}
+
+export function getSessionTimeout() {
+    return SESSION_TIMEOUT;
 }

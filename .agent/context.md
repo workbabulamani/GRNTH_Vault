@@ -124,3 +124,10 @@ cd client && npm run dev
 13. Restore from backup available to all users (admin + user), not admin-only
 14. Timezone dropdown in Settings > General (stored in localStorage)
 15. Session timeout: JWT changed from 7d to 30m, client checks expiry every 60s and auto-logs out
+
+## Recent Changes (March 2026 — Round 5)
+1. Duplicate file upload: auto-renames with `_1`, `_2` suffix instead of failing
+2. Duplicate collection names prevented (server-side check per user)
+3. Tree and collections refresh after restore (no page reload needed)
+4. Fenced code block wraps selected text instead of deleting it on third backtick
+5. Refresh icon added beside collapse/expand icons in sidebar toolbar

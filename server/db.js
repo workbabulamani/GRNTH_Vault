@@ -83,6 +83,14 @@ export function initDB() {
     );
   `);
 
+  // Migration: Add TOTP columns for 2FA support
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT NULL`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0`);
+  } catch (e) { /* column already exists */ }
+
   // Seed default admin if no users exist
   const count = db.prepare('SELECT COUNT(*) as cnt FROM users').get();
   if (count.cnt === 0) {

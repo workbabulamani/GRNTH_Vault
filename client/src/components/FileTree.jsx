@@ -14,15 +14,17 @@ const StarIcon = ({ filled }) => filled
 
 const ExpandAllIcon = () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <polyline points="6 7 12 13 18 7" />
-        <polyline points="6 13 12 19 18 13" />
+        <path d="M12 3v18" />
+        <polyline points="7 8 12 3 17 8" />
+        <polyline points="7 16 12 21 17 16" />
     </svg>
 );
 
 const CollapseAllIcon = () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <polyline points="6 11 12 5 18 11" />
-        <polyline points="6 17 12 11 18 17" />
+        <path d="M12 3v18" />
+        <polyline points="7 5 12 10 17 5" />
+        <polyline points="7 19 12 14 17 19" />
     </svg>
 );
 
@@ -359,6 +361,12 @@ export default function FileTree({ onUploadClick, collectionControls }) {
                 </button>
                 <button className="btn-icon" title="Collapse All" onClick={collapseAll}>
                     <CollapseAllIcon />
+                </button>
+                <button className="btn-icon" title="Refresh" onClick={async () => { await loadTree(); addToast('Refreshed'); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+                        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                    </svg>
                 </button>
             </div>
 

@@ -12,6 +12,12 @@ export const THEMES = [
     { id: 'solarized-dark', name: 'Solarized Dark', icon: '🌅' },
     { id: 'nord', name: 'Nord', icon: '❄️' },
     { id: 'rose-pine', name: 'Rosé Pine', icon: '🌸' },
+    { id: 'dracula', name: 'Dracula', icon: '🧛' },
+    { id: 'monokai', name: 'Monokai', icon: '🎨' },
+    { id: 'one-dark', name: 'One Dark', icon: '⚛️' },
+    { id: 'catppuccin', name: 'Catppuccin', icon: '🐱' },
+    { id: 'gruvbox-dark', name: 'Gruvbox Dark', icon: '🟤' },
+    { id: 'tokyo-night', name: 'Tokyo Night', icon: '🗼' },
 ];
 
 export const ACCENT_COLORS = [
@@ -25,6 +31,14 @@ export const ACCENT_COLORS = [
     { id: 'pink', name: 'Pink', hue: '330', color: '#ec4899' },
     { id: 'teal', name: 'Teal', hue: '173', color: '#14b8a6' },
     { id: 'orange', name: 'Orange', hue: '25', color: '#f97316' },
+    { id: 'coral', name: 'Coral', hue: '16', color: '#ff6b6b' },
+    { id: 'lime', name: 'Lime', hue: '85', color: '#84cc16' },
+    { id: 'sky', name: 'Sky', hue: '199', color: '#0ea5e9' },
+    { id: 'lavender', name: 'Lavender', hue: '255', color: '#a78bfa' },
+    { id: 'gold', name: 'Gold', hue: '45', color: '#eab308' },
+    { id: 'crimson', name: 'Crimson', hue: '348', color: '#dc2626' },
+    { id: 'mint', name: 'Mint', hue: '152', color: '#34d399' },
+    { id: 'slate', name: 'Slate', hue: '215', color: '#64748b' },
 ];
 
 export function ThemeProvider({ children }) {
