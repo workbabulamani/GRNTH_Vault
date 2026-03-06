@@ -41,7 +41,7 @@ No need to clone the repo. Just create a `docker-compose.yml`:
 ```yaml
 services:
   grnth-vault:
-    image: workbabulamani/grnth-vault:latest
+    image: workbabulamani/grnth-vault
     ports:
       - "3000:3000"
     volumes:
