@@ -43,19 +43,21 @@ A lightweight, self-hosted Markdown knowledge base with a modern UI. Built for t
    cd GRNTH_Vault
    ```
 
-2. **Configure environment**
+2. **Create your environment file**
 
-   Edit `docker-compose.yml` or `.env`:
-
-   ```yaml
-   environment:
-     - JWT_SECRET=your-strong-secret-here
-     - ADMIN_EMAIL=admin@example.com
-     - ADMIN_PASSWORD=your-secure-password
-     - SESSION_TIMEOUT=30
-     - ALLOW_SIGNUP=false
-     - ALLOWED_ORIGINS=*
+   ```bash
+   cp .env-sample .env
    ```
+
+   Edit `.env` and update the values — at minimum, change these:
+
+   ```env
+   JWT_SECRET=your-strong-random-secret-here
+   ADMIN_PASSWORD=your-secure-password
+   ENCRYPTION_KEY=your-strong-encryption-key
+   ```
+
+   See [Environment Variables](#environment-variables) below for all options.
 
 3. **Start the application**
 
@@ -77,43 +79,42 @@ A lightweight, self-hosted Markdown knowledge base with a modern UI. Built for t
 
 ### Running without Docker
 
-1. **Clone and install**
+1. **Clone the repository**
 
    ```bash
    git clone https://github.com/workbabulamani/GRNTH_Vault.git
    cd GRNTH_Vault
+   ```
 
+2. **Create your environment file**
+
+   ```bash
+   cp .env-sample .env
+   ```
+
+   Edit `.env` and update the values as needed (see [Environment Variables](#environment-variables)).
+
+3. **Install and build**
+
+   ```bash
    cd server && npm install && cd ..
    cd client && npm install && npm run build && cd ..
    cp -r client/dist/* server/public/
    ```
 
-2. **Configure environment**
-
-   Edit `.env` in the project root:
-
-   ```env
-   JWT_SECRET=your-strong-secret-here
-   PORT=3001
-   DB_PATH=./data/md_viewer.db
-   UPLOAD_DIR=./uploads/images
-   ENCRYPTION_KEY=change-me-use-a-strong-key
-   ADMIN_EMAIL=admin@admin.com
-   ADMIN_PASSWORD=admin123
-   SESSION_TIMEOUT=30
-   ALLOW_SIGNUP=false
-   ALLOWED_ORIGINS=*
-   ```
-
-3. **Start the server**
+4. **Start the server**
 
    ```bash
    cd server && node index.js
    ```
 
+5. **Access the app** at [http://localhost:3001](http://localhost:3001)
+
 ---
 
 ## Environment Variables
+
+All configuration is done via the `.env` file. See `.env-sample` for a fully commented template.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -126,7 +127,23 @@ A lightweight, self-hosted Markdown knowledge base with a modern UI. Built for t
 | `ADMIN_PASSWORD` | `admin123` | Default admin password. **Change in production!** |
 | `SESSION_TIMEOUT` | `30` | Auto-logout timeout in minutes after inactivity |
 | `ALLOW_SIGNUP` | `false` | Set to `true` to allow public registration |
-| `ALLOWED_ORIGINS` | `*` | CORS origins — `*` for all, or comma-separated domains (e.g. `https://vault.example.com,http://192.168.1.5:3001`) |
+| `ALLOWED_ORIGINS` | `*` | CORS origins (see below) |
+
+### `ALLOWED_ORIGINS` Examples
+
+```env
+# Allow all (local/intranet)
+ALLOWED_ORIGINS=*
+
+# Single Cloudflare Tunnel domain
+ALLOWED_ORIGINS=https://vault.yourdomain.com
+
+# Cloudflare Tunnel + local network
+ALLOWED_ORIGINS=https://vault.yourdomain.com,http://192.168.1.100:3000
+
+# Port-forwarded with dynamic DNS
+ALLOWED_ORIGINS=https://myvault.duckdns.org:3000
+```
 
 ## Security
 
